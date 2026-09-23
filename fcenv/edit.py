@@ -59,14 +59,13 @@ _WHEEL = {Spin.NONE: ("NoSpinWheel", fccore.WHEEL),
 
 class ErrorCode(Enum):
     BAD_REFERENCE = "bad_reference"  # no such block or joint slot
-    IMMUTABLE_BLOCK = "immutable_block"  # goal or level block
+    CANNOT_DELETE_GOAL = "cannot_delete_goal"  # deleting a goal piece
     WRONG_BLOCK_TYPE = "wrong_block_type"  # e.g. rewiring a wheel
     SAME_JOINT = "same_joint"  # a block would attach twice to one joint
     SHARED_TWICE = "shared_twice"  # two blocks would share two joints
-    TWO_WHEELS = "two_wheels"  # a joint would hold two wheels
     ROD_TOO_SHORT = "rod_too_short"
     PIECE_LIMIT = "piece_limit"
-    OVERLAP = "overlap"
+    OVERLAP = "overlap"  # also: two wheels on one joint (see _invariants)
     OUTSIDE_BUILD_AREA = "outside_build_area"
     UNREPRESENTABLE = "unrepresentable"  # XML can't express this unambiguously
 
@@ -173,10 +172,18 @@ def _invariants(graph, changed):
             dup = [b for b in blocks if blocks.count(b) > 1]
             return _err(ErrorCode.SAME_JOINT,
                         f"block {dup[0]} would attach twice to one joint", dup[:1])
+        # Two wheels on one joint are reported as an overlap, which is what
+        # they are, but the legality check can't see it: blocks sharing a
+        # joint never collide, so fccore would happily simulate them. The
+        # game's editor never reaches this state (it refuses to snap a wheel
+        # onto a joint with a wheel, leaving it unattached and overlapping),
+        # so check it here, and give the agent the same error it would get
+        # for any other overlap.
         wheels = [b for b in blocks if graph.types[b] in WHEEL_TYPES]
         if len(wheels) > 1:
-            return _err(ErrorCode.TWO_WHEELS,
-                        f"a joint would hold two wheels ({wheels})", wheels)
+            return _err(ErrorCode.OVERLAP,
+                        f"a joint can hold at most one wheel: wheels {wheels} would "
+                        "overlap", wheels)
         for pair in itertools.combinations(sorted(blocks), 2):
             if changed.intersection(pair):
                 pairs[pair] = pairs.get(pair, 0) + 1
@@ -381,11 +388,9 @@ def _deleted(st, block):
     return design, graph, remap, first, old_index
 
 
-def _check_editable(st, block):
+def _check_block(st, block):
     if not (0 <= block < len(st.graph.slots)):
         return _err(ErrorCode.BAD_REFERENCE, f"no block {block}")
-    if st.graph.types[block] in GOAL_TYPES:
-        return _err(ErrorCode.IMMUTABLE_BLOCK, f"block {block} is a goal piece", [block])
     return None
 
 
@@ -393,9 +398,13 @@ def delete(xml, block, rules=Rules()):
     """Delete player block `block`. Later blocks shift down by one.
     info: index_map {old index: new index}."""
     st = _load(xml)
-    bad = _check_editable(st, block)
+    bad = _check_block(st, block)
     if bad:
         return bad
+    if st.graph.types[block] in GOAL_TYPES:
+        return _err(ErrorCode.CANNOT_DELETE_GOAL,
+                    f"block {block} is a goal piece; goal pieces can't be deleted",
+                    [block])
     design, graph, remap, first, old_index = _deleted(st, block)
     return _commit(st, design, graph, set(), old_index, first, {"index_map": remap})
 
@@ -406,11 +415,12 @@ def rewire(xml, block, slot, target, rules=Rules()):
     stretches to the new joint and moves to the end of the block order, as
     if deleted and re-added. info: block, joints, index_map."""
     st = _load(xml)
-    bad = _check_editable(st, block) or _check_ref(st, target)
+    bad = _check_block(st, block) or _check_ref(st, target)
     if bad:
         return bad
     if st.graph.types[block] not in (fccore.WATER_ROD, fccore.SOLID_ROD):
-        return _err(ErrorCode.WRONG_BLOCK_TYPE, f"block {block} is not a rod", [block])
+        return _err(ErrorCode.WRONG_BLOCK_TYPE,
+                    f"block {block} is not a rod; rewire accepts rods", [block])
     if slot not in (0, 1):
         return _err(ErrorCode.BAD_REFERENCE, f"rods have slots 0 and 1, not {slot}")
     if target is not None:

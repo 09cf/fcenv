@@ -35,14 +35,15 @@ Operations: `add_rod(xml, kind, a, b)`, `add_wheel(xml, spin, center)`,
   `rewire` moves the rod to the end, as re-adding it would (block order
   affects the physics). `info["index_map"]` maps old indices to new.
 - **States the original editor prohibits are rejected:**
-  - a joint holding two wheels;
+  - a joint holding two wheels (reported as an overlap: jointed blocks never
+    collide, so the overlap check can't see it, but that's what it is);
   - two blocks sharing more than one joint, including a rod across two joints
     of one block (a goal rect, a wheel or a goal circle);
   - a block attached twice to one joint;
   - player blocks overlapping, or leaving the build area. This uses fccore's
     check; edits must not add violations, which keeps the game's leniency for
     designs that start illegal;
-  - editing goal pieces;
+  - deleting goal pieces;
   - rods shorter than `Rules.min_rod_length` (default 1), or more design
     blocks than `Rules.max_design_blocks` (default 300, fcsim's editor cap;
     goal pieces count).

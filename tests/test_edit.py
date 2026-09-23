@@ -90,7 +90,7 @@ class TestRejections(unittest.TestCase):
         err(edit.delete(LEVEL, 3), ErrorCode.BAD_REFERENCE)
 
     def test_goal_pieces_are_immutable(self):
-        err(edit.delete(LEVEL, GOAL), ErrorCode.IMMUTABLE_BLOCK)
+        err(edit.delete(LEVEL, GOAL), ErrorCode.CANNOT_DELETE_GOAL)
 
     def test_both_ends_on_one_joint(self):
         x = ok(edit.add_rod(LEVEL, "wood", JointRef(GOAL, 1), (80, -20))).xml
@@ -124,8 +124,9 @@ class TestRejections(unittest.TestCase):
 
     def test_one_wheel_per_joint(self):
         x = ok(edit.add_wheel(LEVEL, "none", (100, 0))).xml
-        err(edit.add_wheel(x, "cw", JointRef(1, 0)), ErrorCode.TWO_WHEELS)
-        err(edit.add_wheel(x, "cw", JointRef(1, 2)), ErrorCode.TWO_WHEELS)  # on its spoke
+        # reported as an overlap, though jointed wheels never collide
+        err(edit.add_wheel(x, "cw", JointRef(1, 0)), ErrorCode.OVERLAP)
+        err(edit.add_wheel(x, "cw", JointRef(1, 2)), ErrorCode.OVERLAP)  # on its spoke
 
     def test_rod_too_short(self):
         err(edit.add_rod(LEVEL, "wood", (100, 0), (100.5, 0)), ErrorCode.ROD_TOO_SHORT)
@@ -209,7 +210,7 @@ class TestRewire(unittest.TestCase):
     def test_only_rods(self):
         x = ok(edit.add_wheel(self.x, "none", (100, -100))).xml
         err(edit.rewire(x, 3, 0, None), ErrorCode.WRONG_BLOCK_TYPE)
-        err(edit.rewire(self.x, 0, 0, None), ErrorCode.IMMUTABLE_BLOCK)
+        err(edit.rewire(self.x, 0, 0, None), ErrorCode.WRONG_BLOCK_TYPE)  # goal rect
 
     def test_cannot_rewire_to_own_other_end(self):
         err(edit.rewire(self.x, 2, 0, JointRef(2, 1)), ErrorCode.SAME_JOINT)
