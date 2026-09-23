@@ -492,19 +492,6 @@ static void add_rod(struct design *design, struct block *block,
   shape->rod.width = (xml_block->type == XML_SOLID_ROD ? 8 : 4);
 }
 
-/* fccore: JointCollection.containsWheel: the joint is a wheel's own joint
- * (centre, spoke or inner) or has a wheel attached */
-static bool joint_has_wheel(struct joint *joint) {
-  struct attach_node *node;
-
-  if (joint->gen && joint->gen->shape.type == SHAPE_WHEEL)
-    return true;
-  for (node = joint->att.head; node; node = node->next)
-    if (node->block->shape.type == SHAPE_WHEEL)
-      return true;
-  return false;
-}
-
 static void add_wheel(struct design *design, struct block *block,
                       struct xml_block *xml_block) {
   struct shape *shape = &block->shape;
@@ -519,12 +506,6 @@ static void add_wheel(struct design *design, struct block *block,
   make_joints_list(&att_list, &design->design_blocks, xml_block->joints);
   j0 = find_closest_joint(&att_list, x0, y0);
   destroy_joints_list(&att_list);
-
-  /* fccore: BlockCollection.createWheel only snaps to a joint collection that
-   * contains no wheel (JointCollection.containsWheel); it does not fall back
-   * to the next closest joint */
-  if (j0 && design->fc_import_rules && joint_has_wheel(j0))
-    j0 = NULL;
 
   if (j0) {
     x0 = j0->x;

@@ -94,10 +94,9 @@ typedef struct fc_sim fc_sim;
 
 /* Options for fc_sim_new_opts. The defaults follow the original game. */
 enum {
-  /* fcsim's XML import. By default the original game's is used, which
-   * differs in two ways: wheels with radius > 20 get 4 more joints fixed
-   * 20mm from the centre, axis-aligned (Wheel.as); and a wheel never snaps
-   * to a joint that already has a wheel (BlockCollection.createWheel). */
+  /* fcsim's XML import. By default the original game's is used, where
+   * wheels with radius > 20 get 4 more joints fixed 20mm from the centre,
+   * axis-aligned (Wheel.as). */
   FC_OPT_FCSIM_IMPORT = 1 << 0,
   /* Start with fcsim's win check (see fc_sim_set_win_check). */
   FC_OPT_FCSIM_WIN_CHECK = 1 << 1,

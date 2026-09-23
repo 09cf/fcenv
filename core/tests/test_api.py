@@ -206,16 +206,6 @@ class TestWheelImport(unittest.TestCase):
         with fccore.Sim(design(player), opts=fccore.OPT_FCSIM_IMPORT) as sim:
             self.assertFalse(sim.check_legal().legal)
 
-    def test_wheel_does_not_snap_to_a_joint_with_a_wheel(self):
-        # wheel 1 centred on wheel 0's inner joint
-        player = [self.wheel(60), self.wheel(20, x=20, bid=1, joints=(0,))]
-        self.assertEqual(self.joints(player), [])
-        # with fcsim's rules (5 joints) there is no joint at (20, 0) at all;
-        # put the second wheel on the circumference joint instead
-        player = [self.wheel(60), self.wheel(20, x=30, bid=1, joints=(0,))]
-        self.assertEqual(self.joints(player), [])
-        self.assertEqual(self.joints(player, fccore.OPT_FCSIM_IMPORT), [(0, 1, 30.0, 0.0)])
-
 
 class TestLegality(unittest.TestCase):
     def test_legal(self):

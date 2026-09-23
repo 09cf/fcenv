@@ -239,10 +239,9 @@ struct design {
                  */
   int modcount; /* cache invalidation counter; see README §Designs (Modcount) */
   bool fc_import_rules; /* fccore: follow the original game's XML import
-                           (BlockCollection.as / Wheel.as) where fcsim
-                           differs: inner joints on wheels with radius > 20,
-                           and wheels never snap to a joint that already has
-                           a wheel. Set before convert_xml. */
+                           (Wheel.as) where fcsim differs: inner joints on
+                           wheels with radius > 20. Set before
+                           convert_xml. */
   int expect_checksum; /* checksum from the ?checksum= URL parameter; 0 if
                           absent. User flow: export produces a share link
                           containing this value; opening that link re-loads the

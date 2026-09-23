@@ -51,7 +51,7 @@ with fccore.Sim(xml) as sim:
 Changes to vendored files:
 - `graph.c`/`graph.h` drop `merge_design` and `clean_copy_design` (UI features
   that pulled in `arena.h`).
-- `graph.c`/`graph.h`/`gen.c` add the original game's wheel import rules (see
+- `graph.c`/`graph.h`/`gen.c` add the original game's large-wheel inner joints (see
   [XML import](#xml-import)), gated by `design->fc_import_rules`. They also
   raise per-block joint arrays from 5 to `MAX_BLOCK_JOINTS` (9).
 
@@ -91,7 +91,7 @@ Truncation beats rounding and no quantisation for circles, rects and the zone.
 
 ## XML import
 
-`convert_xml` follows `BlockCollection.createWheel` and the `Wheel`
+`convert_xml` follows the `Wheel`
 constructor (`../decomp/scripts/contraption/blocks/`):
 
 - **Inner joints.** A wheel with radius > 20 (diameter > 40; reachable
@@ -103,10 +103,6 @@ constructor (`../decomp/scripts/contraption/blocks/`):
   are created in that order, which matches the order the game builds physics
   joints in (`Player.initJoints`). Rods snap to inner joints like any other
   joint, and blocks sharing one don't collide.
-- **No wheel-on-wheel snapping.** A wheel's centre doesn't snap to a joint
-  that already has a wheel (`JointCollection.containsWheel`). It doesn't fall
-  back to the next closest joint either. The editor can't produce this, and
-  no design in the dataset hits it.
 
 `FC_OPT_FCSIM_IMPORT` restores fcsim's 5-joint import.
 
