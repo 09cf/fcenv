@@ -1,0 +1,15 @@
+# Designs excluded from agreement tracking, with the reason.
+# reload-on-go: fixed only by emulating the game's re-export/re-import on Go
+# (Player.startSimulation), which fccore deliberately does not model.
+D12718574	reload-on-go	water slinky
+D12718578	reload-on-go	water slinky
+D12718579	reload-on-go	water slinky
+D12718584	reload-on-go	water slinky
+D12718585	reload-on-go	water slinky
+D12718587	reload-on-go	water slinky
+D12718588	reload-on-go	water slinky
+D12713138	reload-on-go	polymorphism: doesn't solve on second play
+D12713133	reload-on-go	polymorphism sibling
+D12706539	reload-on-go	bomb
+D12652786	reload-on-go	relatively slow brown design
+D4870828	reload-on-go	
