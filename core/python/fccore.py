@@ -59,6 +59,21 @@ class JointInfo(C.Structure):
     ]
 
 
+class DesignJointInfo(C.Structure):
+    _fields_ = [("x", C.c_double), ("y", C.c_double),
+                ("gen", C.c_int32), ("n_att", C.c_int32)]
+
+
+@dataclass(frozen=True)
+class DesignJoint:
+    """A joint of the design (a joint stack): position, generating block
+    (or -1) and attached blocks in attach order."""
+    x: float
+    y: float
+    gen: int
+    att: tuple
+
+
 class Area(C.Structure):
     _fields_ = [(n, C.c_double) for n in ("x", "y", "w", "h")]
 
@@ -81,6 +96,11 @@ _sig("fc_sim_design_block_count", C.c_int32, _P)
 _sig("fc_sim_get_blocks", C.c_int32, _P, C.POINTER(BlockInfo), C.c_int32)
 _sig("fc_sim_get_state", C.c_int32, _P, C.POINTER(BodyState), C.c_int32)
 _sig("fc_sim_get_joints", C.c_int32, _P, C.POINTER(JointInfo), C.c_int32)
+_sig("fc_sim_design_joint_count", C.c_int32, _P)
+_sig("fc_sim_get_design_joint", C.c_int32, _P, C.c_int32, C.POINTER(DesignJointInfo),
+     C.POINTER(C.c_int32), C.c_int32)
+_sig("fc_sim_get_block_joint_ids", C.c_int32, _P, C.c_int32, C.POINTER(C.c_int32),
+     C.c_int32)
 _sig("fc_sim_get_build_area", None, _P, C.POINTER(Area))
 _sig("fc_sim_get_goal_area", None, _P, C.POINTER(Area))
 _sig("fc_sim_step", None, _P, C.c_int64)
@@ -148,6 +168,25 @@ class Sim:
         arr = (JointInfo * max(n, 1))()
         _lib.fc_sim_get_joints(self._h, arr, n)
         return list(arr[:n])
+
+    def design_joints(self):
+        """All design joints, in the design's joint list order."""
+        out = []
+        for i in range(_lib.fc_sim_design_joint_count(self._h)):
+            info = DesignJointInfo()
+            n = _lib.fc_sim_get_design_joint(self._h, i, C.byref(info), None, 0)
+            att = (C.c_int32 * max(n, 1))()
+            _lib.fc_sim_get_design_joint(self._h, i, C.byref(info), att, n)
+            out.append(DesignJoint(info.x, info.y, info.gen, tuple(att[:n])))
+        return out
+
+    def block_joint_ids(self, block):
+        """Design joint ids of the block's joint slots, in canonical order."""
+        ids = (C.c_int32 * 9)()
+        n = _lib.fc_sim_get_block_joint_ids(self._h, block, ids, 9)
+        if n < 0:
+            raise IndexError(block)
+        return list(ids[:n])
 
     def build_area(self):
         a = Area()

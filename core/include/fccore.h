@@ -71,6 +71,17 @@ typedef struct fc_joint_info {
   double x, y;            /* anchor on block1 */
 } fc_joint_info;
 
+/* A joint of the design (not the physics world): what the game shows as one
+ * joint. Several blocks can share it (a joint stack). `gen` is the block
+ * whose shape positions it (a goal rect's corners, a wheel's circumference
+ * and inner joints), or -1. The other members are listed in attach order;
+ * together with gen first they form the stack's chain. */
+typedef struct fc_design_joint {
+  double x, y;
+  int32_t gen;
+  int32_t n_att;
+} fc_design_joint;
+
 typedef struct fc_area {
   double x, y, w, h;
 } fc_area;
@@ -128,6 +139,20 @@ FCCORE_API int32_t fc_sim_design_block_count(const fc_sim *sim);
 FCCORE_API int32_t fc_sim_get_blocks(const fc_sim *sim, fc_block_info *out, int32_t cap);
 FCCORE_API int32_t fc_sim_get_state(const fc_sim *sim, fc_body_state *out, int32_t cap);
 FCCORE_API int32_t fc_sim_get_joints(const fc_sim *sim, fc_joint_info *out, int32_t cap);
+
+/* Design joints, indexed 0..count-1 in the design's joint list order. */
+FCCORE_API int32_t fc_sim_design_joint_count(const fc_sim *sim);
+/* Fill *out for joint `id`, and up to `cap` attached block indices into
+ * `att`. Returns n_att, or -1 for a bad id. */
+FCCORE_API int32_t fc_sim_get_design_joint(const fc_sim *sim, int32_t id,
+                                           fc_design_joint *out, int32_t *att,
+                                           int32_t cap);
+/* Design joint ids of block `block`'s joint slots, in canonical order (rod:
+ * from, to; wheel: centre, 4 circumference, 4 inner if radius > 20; goal
+ * rect: centre, 4 corners). Returns the slot count (0 for level blocks), or
+ * -1 for a bad block index. At most 9 slots. */
+FCCORE_API int32_t fc_sim_get_block_joint_ids(const fc_sim *sim, int32_t block,
+                                              int32_t *ids, int32_t cap);
 
 FCCORE_API void fc_sim_get_build_area(const fc_sim *sim, fc_area *out);
 FCCORE_API void fc_sim_get_goal_area(const fc_sim *sim, fc_area *out);

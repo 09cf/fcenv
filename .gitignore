@@ -1,2 +1,3 @@
-fcsim/
-decomp/
+/decomp
+/fcsim
+__pycache__/

@@ -383,6 +383,64 @@ int32_t fc_sim_get_joints(const fc_sim *sim, fc_joint_info *out, int32_t cap) {
   return n;
 }
 
+static struct joint *design_joint_at(const fc_sim *sim, int32_t id) {
+  struct joint *j = sim->design->joints.head;
+  if (id < 0)
+    return NULL;
+  while (j && id--)
+    j = j->next;
+  return j;
+}
+
+static int32_t design_joint_id(const fc_sim *sim, const struct joint *joint) {
+  int32_t id = 0;
+  struct joint *j;
+  for (j = sim->design->joints.head; j; j = j->next, id++)
+    if (j == joint)
+      return id;
+  return -1;
+}
+
+int32_t fc_sim_design_joint_count(const fc_sim *sim) {
+  int32_t n = 0;
+  struct joint *j;
+  for (j = sim->design->joints.head; j; j = j->next)
+    n++;
+  return n;
+}
+
+int32_t fc_sim_get_design_joint(const fc_sim *sim, int32_t id,
+                                fc_design_joint *out, int32_t *att,
+                                int32_t cap) {
+  struct joint *j = design_joint_at(sim, id);
+  struct attach_node *node;
+  int32_t n = 0;
+  if (!j)
+    return -1;
+  for (node = j->att.head; node; node = node->next) {
+    if (att && n < cap)
+      att[n] = block_index(sim, node->block);
+    n++;
+  }
+  out->x = j->x;
+  out->y = j->y;
+  out->gen = j->gen ? block_index(sim, j->gen) : -1;
+  out->n_att = n;
+  return n;
+}
+
+int32_t fc_sim_get_block_joint_ids(const fc_sim *sim, int32_t block,
+                                   int32_t *ids, int32_t cap) {
+  struct joint *joints[MAX_BLOCK_JOINTS];
+  int32_t n, i;
+  if (block < 0 || block >= sim->n_blocks)
+    return -1;
+  n = get_block_joints(sim->blocks[block], joints);
+  for (i = 0; i < n && i < cap; i++)
+    ids[i] = design_joint_id(sim, joints[i]);
+  return n;
+}
+
 static void area_out(const struct area *a, fc_area *out) {
   out->x = a->x;
   out->y = a->y;
