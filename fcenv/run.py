@@ -23,6 +23,10 @@ from . import render as R
 from .design import fccore
 
 TICKS_PER_SECOND = 30
+# motion arrows: rod sample spacing, line width and head size (px), arrows
+# shorter than min_px not drawn, longer than max_px capped, and thinning of
+# arrows starting within near_px of a similar one
+_ARROW = dict(spacing=30, width=2.0, head=7.0, min_px=4.0, max_px=70.0, near_px=18)
 _TRAIL_COLOURS = [(0.85, 0.1, 0.55), (0.1, 0.35, 0.95), (0.95, 0.5, 0.0),
                   (0.1, 0.65, 0.3), (0.55, 0.2, 0.85), (0.0, 0.6, 0.7)]
 
@@ -112,31 +116,22 @@ class Run:
         lx0, ly0, lx1, ly1 = self._frame
         return (max(x0 - pad, lx0), max(y0 - pad, ly0), min(x1 + pad, lx1), min(y1 + pad, ly1))
 
-    def _samples(self, i, scale, style):
+    def _samples(self, i, scale):
         """Points on block i to draw motion for, in its body frame."""
         info = self._scene.blocks[i]
         if info.type_id in (fccore.WATER_ROD, fccore.SOLID_ROD):
             # ends, then about every `spacing` pixels
-            n = max(2, 1 + math.ceil(info.w * scale / style["spacing"]))
+            n = max(2, 1 + math.ceil(info.w * scale / _ARROW["spacing"]))
             return [(-info.w / 2 + info.w * k / (n - 1), 0.0) for k in range(n)]
         if info.shape == fccore.SHAPE_CIRCLE:
             return [(0.0, 0.0)]  # wheels, balls: the centre; spin would clutter
-        corners = info.type_id == fccore.DYNAMIC_RECT or (
-            info.type_id == fccore.GOAL_RECT and style["rect_corners"])
-        if corners:  # so rotation shows, e.g. a tipping slab
+        if info.type_id in (fccore.DYNAMIC_RECT, fccore.GOAL_RECT):
+            # centre and corners, so rotation shows, e.g. a tipping slab
             hw, hh = info.w / 2, info.h / 2
             return [(0.0, 0.0), (hw, hh), (-hw, hh), (hw, -hh), (-hw, -hh)]
         return [(0.0, 0.0)]
 
-    # arrow styles: full-size frames, and small filmstrip cells (bolder
-    # arrows, thinned more widely; thinning handles density, so rods are
-    # sampled at the same spacing)
-    _ARROWS = {"frame": dict(spacing=30, width=2.0, head=7.0, min_px=4.0, max_px=70.0,
-                             near_px=18, rect_corners=True),
-               "cell": dict(spacing=30, width=3.0, head=9.0, min_px=5.0, max_px=50.0,
-                            near_px=32, rect_corners=False)}
-
-    def _motion(self, tick, horizon, style="frame"):
+    def _motion(self, tick, horizon):
         """Overlay drawing, for sample points on moving blocks, an arrow from
         where each point is at `tick` to where that point of the body is at
         tick + horizon (the actual recorded motion, not a projection).
@@ -145,7 +140,7 @@ class Run:
         so every arrow drawn is still a real trace."""
         t1 = min(tick + horizon, self.ticks)
         s = self._scene
-        st = self._ARROWS[style]
+        st = _ARROW
         movers = [i for i in range(len(s.blocks))
                   if i < s.n_design or s.blocks[i].type_id in
                   (fccore.DYNAMIC_RECT, fccore.DYNAMIC_CIRCLE)]
@@ -157,7 +152,7 @@ class Run:
             for i in movers:
                 (x0, y0, a0), (x1, y1, a1) = self.states[tick, i, :3], self.states[t1, i, :3]
                 c0, s0, c1, s1 = math.cos(a0), math.sin(a0), math.cos(a1), math.sin(a1)
-                for px, py in self._samples(i, scale, st):
+                for px, py in self._samples(i, scale):
                     ax, ay = x0 + c0 * px - s0 * py, y0 + s0 * px + c0 * py
                     bx, by = x1 + c1 * px - s1 * py, y1 + s1 * px + c1 * py
                     length = math.hypot(bx - ax, by - ay) * scale
@@ -254,8 +249,7 @@ class Run:
             # small cells: smaller joint rings, or they swamp small wheels
             imgs = [R._render_scene(self._scene_at(t), region, cell, grid="none",
                                     labels="none", caption=f"tick {t}",
-                                    overlay=(self._motion(t, horizon, "cell" if cell < 500
-                                                          else "frame") if motion else None),
+                                    overlay=self._motion(t, horizon) if motion else None,
                                     joint_px=1.5 if cell < 500 else 3.0).png
                     for t in chunk]
             surfs = [cairo.ImageSurface.create_from_png(io.BytesIO(p)) for p in imgs]

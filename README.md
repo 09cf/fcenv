@@ -131,6 +131,4 @@ world, since Box2D freezes it there and it never returns.
   - Arrows too similar to one already kept (starting within 18px, pointing
     within 20°, similar length) are dropped in a random order, so every
     arrow drawn is still a real trace.
-  - Filmstrip cells use bolder arrows, thinned within 32px, with goal rects
-    sampled at the centre only.
 
