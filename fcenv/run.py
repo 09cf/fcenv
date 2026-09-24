@@ -128,11 +128,12 @@ class Run:
             return [(0.0, 0.0), (hw, hh), (-hw, hh), (hw, -hh), (-hw, -hh)]
         return [(0.0, 0.0)]
 
-    # arrow styles: full-size frames, and small filmstrip cells (fewer,
-    # bolder arrows)
+    # arrow styles: full-size frames, and small filmstrip cells (bolder
+    # arrows, thinned more widely; thinning handles density, so rods are
+    # sampled at the same spacing)
     _ARROWS = {"frame": dict(spacing=30, width=2.0, head=7.0, min_px=4.0, max_px=70.0,
                              near_px=18, rect_corners=True),
-               "cell": dict(spacing=120, width=3.0, head=9.0, min_px=5.0, max_px=50.0,
+               "cell": dict(spacing=30, width=3.0, head=9.0, min_px=5.0, max_px=50.0,
                             near_px=32, rect_corners=False)}
 
     def _motion(self, tick, horizon, style="frame"):
