@@ -3,11 +3,11 @@ Session. Results are tool-result content blocks (text, and PNG images as
 base64), as Claude's API takes them.
 
 Argument conventions:
-- a joint is a string "block.slot", e.g. "3.1" (as labelled in images);
+- a joint is a string "block:slot", e.g. "3:1" (as labelled in images);
 - a point is [x, y];
-- a relative point is {"from": "3.1", "offset": [dx, dy]} or
-  {"from": "3.1", "length": 60, "angle": 45} (degrees; 0 = +x, 90 = down);
-- in add_rods, "@i.s" is end s of the batch's i-th rod.
+- a relative point is {"from": "3:1", "offset": [dx, dy]} or
+  {"from": "3:1", "length": 60, "angle": 45} (degrees; 0 = +x, 90 = down);
+- in add_rods, "@i:s" is end s of the batch's i-th rod.
 """
 
 import base64
@@ -16,12 +16,12 @@ import re
 from .design import JointRef
 from .edit import NewRef, Offset, Polar
 
-_JOINT = {"type": "string", "description": 'A joint, "block.slot", e.g. "3.1".'}
+_JOINT = {"type": "string", "description": 'A joint, "block:slot", e.g. "3:1".'}
 _POINT_OR_JOINT = {
     "anyOf": [{"type": "string"},
               {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
               {"type": "object"}],
-    "description": ('A joint name string ("3.1") to connect to, or a free point: [x, y], '
+    "description": ('A joint name string ("3:1") to connect to, or a free point: [x, y], '
                     '{"from": joint, "offset": [dx, dy]} or '
                     '{"from": joint, "length": L, "angle": degrees}.'),
 }
@@ -45,7 +45,7 @@ TOOLS = [
     _tool("add_rod", "Add a rod (or `count` identical rods) from a to b.",
           {"kind": {"enum": ["wood", "water"]}, "a": _POINT_OR_JOINT, "b": _POINT_OR_JOINT,
            "count": {"type": "integer", "minimum": 1}}, ["kind", "a", "b"]),
-    _tool("add_rods", 'Add several rods at once (all or none). Ends can also be "@i.s": '
+    _tool("add_rods", 'Add several rods at once (all or none). Ends can also be "@i:s": '
           "end s of the batch's rod i.",
           {"rods": {"type": "array", "items": {
               "type": "object", "properties": {"kind": {"enum": ["wood", "water"]},
@@ -96,14 +96,14 @@ from .docs import HELP  # noqa: E402  (the on-demand reference)
 
 def _not_a_number(v):
     if isinstance(v, (int, float)) and not isinstance(v, bool):
-        raise ValueError(f'joint names are strings: "{v}", not {v}')
+        raise ValueError(f'joint names are strings like "3:1", not numbers ({v})')
 
 
 def _joint(s):
     _not_a_number(s)
-    m = re.fullmatch(r"\s*(@?)(\d+)\.(\d+)\s*", str(s))
+    m = re.fullmatch(r"\s*(@?)(\d+):(\d+)\s*", str(s))
     if not m:
-        raise ValueError(f"{s!r} is not a joint like \"3.1\"")
+        raise ValueError(f"{s!r} is not a joint like \"3:1\"")
     cls = NewRef if m.group(1) else JointRef
     return cls(int(m.group(2)), int(m.group(3)))
 

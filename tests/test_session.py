@@ -32,23 +32,25 @@ class TestTools(unittest.TestCase):
 
     def test_build_with_names_and_relative_points(self):
         s = Session(LEVEL)
-        ok, text, _ = call(s, "add_rod", kind="wood", a="0.1",
-                           b={"from": "0.1", "offset": [60, 0]})
+        ok, text, _ = call(s, "add_rod", kind="wood", a="0:1",
+                           b={"from": "0:1", "offset": [60, 0]})
         self.assertTrue(ok)
-        self.assertEqual(text, "Added wood rod #1 (1.0 = 0.1, 1.1 at (80, -20)).")
+        self.assertEqual(text, "Added wood rod #1 (1:0 = 0:1, 1:1 at (80, -20)).")
         ok, text, _ = call(s, "add_rods", rods=[
             {"kind": "water", "a": [60, 60], "b": [120, 60]},
-            {"kind": "water", "a": "@0.1", "b": {"from": "@0.1", "length": 40, "angle": 90}}])
-        self.assertIn("water rod #3 (3.0 = 2.1, 3.1 at (120, 100))", text)
-        ok, text, _ = call(s, "add_wheel", spin="cw", center="1.1")
-        self.assertEqual(text, "Added cw wheel #4 (centre 4.0 = 1.1).")
+            {"kind": "water", "a": "@0:1", "b": {"from": "@0:1", "length": 40, "angle": 90}}])
+        self.assertIn("water rod #3 (3:0 = 2:1, 3:1 at (120, 100))", text)
+        ok, text, _ = call(s, "add_wheel", spin="cw", center="1:1")
+        self.assertEqual(text, "Added cw wheel #4 (centre 4:0 = 1:1).")
 
     def test_joints_given_as_numbers(self):
         s = Session(LEVEL)
         ok, text, _ = call(s, "add_wheel", spin="cw", center=0.1)
-        self.assertEqual((ok, text), (False, 'Bad arguments: joint names are strings: "0.1", not 0.1'))
+        self.assertEqual((ok, text), (False, 'Bad arguments: joint names are strings like "3:1", not numbers (0.1)'))
         ok, text, _ = call(s, "move_joint", joint=0.0, to=[0, 0])
-        self.assertIn('"0.0", not 0.0', text)
+        self.assertIn("not numbers (0.0)", text)
+        ok, text, _ = call(s, "add_wheel", spin="cw", center="0.1")  # the old format
+        self.assertEqual(text, 'Bad arguments: \'0.1\' is not a joint like "3:1"')
 
     def test_rejections_and_bad_arguments(self):
         s = Session(LEVEL)

@@ -77,7 +77,7 @@ class TestLabels(unittest.TestCase):
         x = edit.add_rod(LEVEL, "wood", (60, 100), (180, 100)).xml
         a = render.render(x, VIEW, SIZE, grid="none", labels="none").png
         b = render.render(x, VIEW, SIZE, grid="none", labels="joints").png
-        self.assertNotEqual(colour(a, 187, 95), colour(b, 187, 95))  # label "1.1"
+        self.assertNotEqual(colour(a, 187, 95), colour(b, 187, 95))  # label "1:1"
         self.assertEqual(colour(a, 120, 250), colour(b, 120, 250))  # far away
 
 

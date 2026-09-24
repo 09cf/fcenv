@@ -4,7 +4,7 @@ every joint named the way the API accepts it, and exact level geometry."""
 import math
 
 from . import edit
-from .design import parse
+from .design import joint_name, parse
 
 
 def _n(v):
@@ -21,8 +21,7 @@ def _deg(rad):
     return _n(math.degrees(rad))
 
 
-def _ref(r):
-    return f"{r.block}.{r.slot}"
+_ref = joint_name
 
 
 _KIND = {
@@ -45,7 +44,7 @@ def _box_corners(x, y, w, h, angle):
 def summary(xml):
     """A text summary of the design. Pieces are grouped by connected
     component (blocks joined through shared joints). Each joint slot is
-    listed by name (block.slot): a slot that shares a joint with a
+    listed by name (block:slot): a slot that shares a joint with a
     lower-named slot shows "= name"; otherwise its position, and which
     other slots share it."""
     d = edit.describe(xml)

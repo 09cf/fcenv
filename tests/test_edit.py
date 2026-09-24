@@ -373,8 +373,8 @@ class TestSummary(unittest.TestCase):
         c1, c2 = s.index("Component 1 (3 parts)"), s.index("Component 2 (1 part)")
         self.assertTrue(c1 < s.index("#0 goal rect, centre (0, 0), 40 x 40") < c2)
         self.assertTrue(c1 < s.index("#3 cw wheel") < c2 < s.index("#2 water rod"))
-        self.assertIn("1.1 (80, -20) +3.0", s)  # shared joint, named by lowest ID
-        self.assertIn("3.0 = 1.1", s)
+        self.assertIn("1:1 (80, -20) +3:0", s)  # shared joint, named by lowest ID
+        self.assertIn("3:0 = 1:1", s)
         self.assertIn("L0 static rect, centre (0, 300), 2000 x 40; top edge y 280", s)
 
 
@@ -397,7 +397,7 @@ class TestRender(unittest.TestCase):
         # the six free ends sit at one point: no zoom can separate them
         stacked = [h for h in r.hidden if h.zoom is None]
         self.assertEqual(len(stacked), 1)
-        self.assertEqual(sorted(stacked[0].names), [f"{b}.1" for b in range(1, 7)])
+        self.assertEqual(sorted(stacked[0].names), [f"{b}:1" for b in range(1, 7)])
         self.assertIn("all at (20, 100)", r.notes())
 
 

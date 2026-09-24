@@ -90,7 +90,7 @@ No physics is stepped during edits.
     circled on the image;
   - `.notes()` lists each unlabelled group's joint names and a region to
     render it at, which is exactly the `view` argument for a zoomed render;
-  - joints at practically the same point share a label (`3.1/4.1/5.1`),
+  - joints at practically the same point share a label (`3:1/4:1/5:1`),
     since no zoom separates them;
   - wheels and goal circles only label their centre, plus any outer joint
     something is attached to.
@@ -146,9 +146,9 @@ JSON input schema). `tools.dispatch(session, name, args)` runs one and
 returns `(ok, content)`, with content as Claude tool-result blocks: text,
 plus PNG images for `view` and the run images.
 
-- Joints are strings (`"3.1"`, as labelled in images); points are `[x, y]`;
-  relative points are `{"from": "3.1", "offset": [dx, dy]}` or
-  `{"from": "3.1", "length": L, "angle": deg}`; in `add_rods`, `"@i.s"` is
+- Joints are strings (`"3:1"`, as labelled in images); points are `[x, y]`;
+  relative points are `{"from": "3:1", "offset": [dx, dy]}` or
+  `{"from": "3:1", "length": L, "angle": deg}`; in `add_rods`, `"@i:s"` is
   end s of the batch's rod i.
 - Build tools return one line (what changed, with the new joint names), not
   images; `describe` and `view` show the design.

@@ -31,7 +31,7 @@ This level:
 - goal pieces: {len(goals)} ({", ".join(f"#{b['id']}" for b in goals)})
 
 Coordinates: +x is right and +y is DOWN; angles are in degrees, clockwise.
-Joints are named "block.slot", e.g. "3.1", as labelled in images.
+Joints are named "block:slot", e.g. "3:1", as labelled in images.
 
 Start with describe and view to see the level. Build with the build tools,
 check your machine with run and the run images, and adjust. Save designs you
@@ -66,7 +66,7 @@ parts of the level: they fall, roll and get pushed.
 Gravity pulls down (+y) at 300 units/s². There are 30 ticks per second.""",
 
     "joints": """\
-Joints are named "block.slot":
+Joints are named "block:slot":
 - rods: slot 0 and 1 are the two ends;
 - wheels: 0 is the centre; 1-4 are on the rim (right, below, left, above,
   turning with the wheel); wheels wider than 40 (some goal circles) also
@@ -94,11 +94,11 @@ Rules (a build call that breaks one is rejected and changes nothing):
 - rods must be at least 1 long; at most 300 pieces in total, goal pieces
   included.
 
-Positions: [x, y]; or relative to a joint: {"from": "3.1", "offset": [dx, dy]},
-or {"from": "3.1", "length": L, "angle": A} (A in degrees: 0 right, 90 down).
+Positions: [x, y]; or relative to a joint: {"from": "3:1", "offset": [dx, dy]},
+or {"from": "3:1", "length": L, "angle": A} (A in degrees: 0 right, 90 down).
 Relative points never attach to their "from" joint.
 
-add_rods builds several rods in one call, all or none; "@i.s" names end s of
+add_rods builds several rods in one call, all or none; "@i:s" names end s of
 the i-th rod in the same call. add_rod with count builds identical copies
 (e.g. weights hanging from one joint).
 
@@ -140,7 +140,7 @@ Pieces drawn in bright red break a build rule.
 view labels every joint with its name. Where labels would overlap, a group
 is left unlabelled and circled, and the text with the image lists the names
 there and a region to view to see them. Joints at the same point share one
-label ("3.1/4.1/5.1"). Wheels only label their centre, plus any rim joint
+label ("3:1/4:1/5:1"). Wheels only label their centre, plus any rim joint
 with something attached. Grid values are along the edges.""",
 
     "saves": """\

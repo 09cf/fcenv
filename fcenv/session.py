@@ -14,6 +14,7 @@ import time
 from dataclasses import dataclass, field
 
 from . import edit, render, run as runs, view
+from .design import joint_name
 
 
 @dataclass
@@ -83,16 +84,16 @@ class Session:
         self.current = len(self.versions) - 1
 
     def _joints_text(self, refs):
-        """'5.0 = 1.1, 5.1 at (80, -20)': each slot's joint, by name."""
+        """'5:0 = 1:1, 5:1 at (80, -20)': each slot's joint, by name."""
         joints = edit.describe(self.xml)["joints"]
         out = []
         for r in refs:
             j = next(j for j in joints if r in j["members"])
             name = j["name"]
             if name != r:
-                out.append(f"{r.block}.{r.slot} = {name.block}.{name.slot}")
+                out.append(f"{joint_name(r)} = {joint_name(name)}")
             else:
-                out.append(f"{r.block}.{r.slot} at ({view._n(j['x'])}, {view._n(j['y'])})")
+                out.append(f"{joint_name(r)} at ({view._n(j['x'])}, {view._n(j['y'])})")
         return ", ".join(out)
 
     # ------------------------------------------------------------ build
@@ -123,7 +124,7 @@ class Session:
     def move_joint(self, joint, to):
         return self._commit(
             edit.move_joint(self.xml, joint, to, self.rules),
-            lambda r: (f"Moved joint {joint.block}.{joint.slot} by "
+            lambda r: (f"Moved joint {joint_name(joint)} by "
                        f"({view._n(r.info['delta'][0])}, {view._n(r.info['delta'][1])})"
                        + (f"; moved #{', #'.join(map(str, r.info['moved']))}"
                           if r.info["moved"] else "")

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 import cairo
 
 from . import edit
-from .design import fccore
+from .design import fccore, joint_name
 
 # fcsim's default palette (graph.c piece_color_table, palette 0): per type,
 # (outer, inner) as ARGB
@@ -520,7 +520,7 @@ def _draw_labels(cr, scene, px, labels, block_labels, zoom_hints, size, bounds):
     # separates them
     items = []  # (x, y, [names])
     for j in shown:
-        name = f"{j['name'].block}.{j['name'].slot}"
+        name = joint_name(j["name"])
         for it in items:
             if math.dist((it[0], it[1]), (j["x"], j["y"])) < _SAME_POINT:
                 it[2].append(name)

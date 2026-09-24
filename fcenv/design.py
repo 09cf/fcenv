@@ -177,6 +177,11 @@ class JointRef:
     slot: int
 
 
+def joint_name(ref):
+    """A joint's name as tools, text and images give it: "block:slot"."""
+    return f"{ref.block}:{ref.slot}"
+
+
 @dataclass
 class Stack:
     """One design joint: a joint stack. `gen` is the generating slot (a goal

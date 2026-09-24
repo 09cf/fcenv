@@ -67,7 +67,7 @@ class TestHarness(unittest.TestCase):
     def test_build_run_submit(self):
         r, out, client = play([
             [("describe", {}), ("view", {})],
-            [("add_rod", {"kind": "wood", "a": "0.1", "b": {"from": "0.1", "offset": [60, 0]}})],
+            [("add_rod", {"kind": "wood", "a": "0:1", "b": {"from": "0:1", "offset": [60, 0]}})],
             [("run", {"timeout": 30}), ("run_frame", {"tick": 10})],
             [("submit", {})],
         ])
@@ -106,10 +106,10 @@ class TestHarness(unittest.TestCase):
         calls on a fresh session gives the same versions, and each entry's
         version_after is the design after that call."""
         r, out, _ = play([
-            [("add_rods", {"rods": [{"kind": "wood", "a": "0.1", "b": [60, -20]},
-                                    {"kind": "water", "a": "@0.1", "b": [60, 40]}]})],
-            [("add_wheel", {"spin": "cw", "center": "1.1"}), ("save", {"name": "a"})],
-            [("move_joint", {"joint": "2.1", "to": [80, 40]}), ("undo", {}), ("redo", {})],
+            [("add_rods", {"rods": [{"kind": "wood", "a": "0:1", "b": [60, -20]},
+                                    {"kind": "water", "a": "@0:1", "b": [60, 40]}]})],
+            [("add_wheel", {"spin": "cw", "center": "1:1"}), ("save", {"name": "a"})],
+            [("move_joint", {"joint": "2:1", "to": [80, 40]}), ("undo", {}), ("redo", {})],
             [("delete", {"block": 3}), ("load", {"name": "a"}), ("run", {"timeout": 20})],
             [("submit", {})]])
         log = [json.loads(s) for s in (out / "tools.jsonl").read_text().splitlines()]
