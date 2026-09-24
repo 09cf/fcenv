@@ -96,3 +96,22 @@ No physics is stepped during edits.
 
 Rendering needs `pycairo`.
 
+## Runs
+
+`run.simulate(xml, timeout=3000)` plays the design once and returns a
+`Run`: every block's state at every tick, kept as a static object to query
+and draw at any tick (the physics is fast next to an agent's thinking).
+A run stops early when it's solved, or when a goal piece leaves the physics
+world, since Box2D freezes it there and it never returns.
+
+- `run.summary()`: the outcome, each goal piece's start and end, and for
+  unsolved runs its closest approach to the goal area. Joint breaks are
+  listed only if there were any.
+- `run.state(tick, block_id)`: (x, y, angle, vx, vy, omega).
+- Images, all in the level view:
+  - `run.frame(tick)`;
+  - `run.trails()`: goal-piece paths over the final frame;
+  - `run.onion(count)`: faded copies of the pieces at earlier ticks;
+  - `run.filmstrip(stride=… or ticks=[…], per_page=9)`: a list of pages
+    of captioned frames.
+

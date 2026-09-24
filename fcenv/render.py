@@ -62,8 +62,20 @@ class _Scene:
             self.build = (b.x, b.y, b.w, b.h)
             self.goal = (g.x, g.y, g.w, g.h)
         d = edit.describe(xml)
+        self.design_blocks = d["blocks"]
         self.flags = {i: b["flags"] for i, b in enumerate(d["blocks"])}
         self.joints = d["joints"]  # x, y, name, members
+
+    def at(self, state, anchors):
+        """A copy showing a runtime state: bodies at `state`, joints at the
+        physics anchors `anchors` [(x, y)], no legality tint, no names."""
+        import copy
+
+        s = copy.copy(self)
+        s.state = state
+        s.flags = {}
+        s.joints = [{"x": x, "y": y, "name": None, "members": []} for x, y in anchors]
+        return s
 
     def extent(self, i):
         """Axis-aligned bounds of block i."""
@@ -182,7 +194,18 @@ def render(xml, view="build", size=1024, margin=None, grid="lines",
     if margin is None:
         margin = 0.03 if view == "level" else 0.25
     scene = _Scene(xml)
-    x0, y0, x1, y1 = _frame(scene, view, margin)
+    return _render_scene(scene, _frame(scene, view, margin), size, grid, labels,
+                         block_labels, zoom_hints)
+
+
+def _render_scene(scene, frame, size=1024, grid="lines", labels="clusters",
+                  block_labels=False, zoom_hints="none", underlay=None, overlay=None,
+                  caption=None):
+    """Draw `scene` in the region `frame`. underlay(cr, scale, pieces) runs
+    after the terrain and before the pieces, overlay(cr, scale, pieces)
+    after the joints, both in world coordinates; pieces(states, alpha)
+    draws the pieces at other states (e.g. ghosts)."""
+    x0, y0, x1, y1 = frame
     ruler = 0 if grid == "none" else 34
     scale = (size - ruler) / max(x1 - x0, y1 - y0)
     W = int(round((x1 - x0) * scale)) + ruler
@@ -256,6 +279,19 @@ def render(xml, view="build", size=1024, margin=None, grid="lines",
         draw_block(i, "outer")
     for i in level:
         draw_block(i, "inner")
+
+    def pieces(states, alpha=1.0):
+        live = scene.state
+        scene.state = states
+        cr.push_group()
+        for i in range(scene.n_design):
+            draw_block(i, "both")
+        cr.pop_group_to_source()
+        cr.paint_with_alpha(alpha)
+        scene.state = live
+
+    if underlay:
+        underlay(cr, scale, pieces)
     for i in range(scene.n_design):
         draw_block(i, "both")
 
@@ -267,6 +303,9 @@ def render(xml, view="build", size=1024, margin=None, grid="lines",
         cr.new_path()
         cr.arc(j["x"], j["y"], r_out * 0.75, 0, 2 * math.pi)
         cr.stroke()
+
+    if overlay:
+        overlay(cr, scale, pieces)
 
     if grid == "lines":
         step = _nice_step(max(x1 - x0, y1 - y0), 10)
@@ -288,8 +327,9 @@ def render(xml, view="build", size=1024, margin=None, grid="lines",
     # labels, in pixel space
     cr.select_font_face("sans-serif", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
     cr.set_font_size(11)
-    hidden = _draw_labels(cr, scene, xml, px, labels, block_labels, zoom_hints, size,
+    hidden = _draw_labels(cr, scene, px, labels, block_labels, zoom_hints, size,
                           (x0, y0, x1, y1))
+
 
     if grid != "none":
         step = _nice_step(max(x1 - x0, y1 - y0), 10)
@@ -328,6 +368,14 @@ def render(xml, view="build", size=1024, margin=None, grid="lines",
             gy += step
         cr.move_to(3, 12)
         cr.show_text("+y down")
+
+    if caption:  # last, inside the plot area's top-right corner
+        cr.select_font_face("sans-serif", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        cr.set_font_size(13)
+        ext = cr.text_extents(caption)
+        w, h = ext.width + 4, ext.height + 4
+        box = (W - w - 6, ruler + 6, W - 6, ruler + 6 + h)
+        _draw_text(cr, caption, box, bg=(1, 1, 1, 0.9))
 
     import io
 
@@ -418,8 +466,8 @@ def _draw_marker(cr, pts, text, taken):
 _SAME_POINT = 0.5  # world units: joints this close share one label
 
 
-def _draw_labels(cr, scene, xml, px, labels, block_labels, zoom_hints, size, bounds):
-    ids = [b for b in edit.describe(xml)["blocks"]]
+def _draw_labels(cr, scene, px, labels, block_labels, zoom_hints, size, bounds):
+    ids = scene.design_blocks
     wheel_ids = {b["id"] for b in ids if "Wheel" in b["type"]}
     taken = []
     if block_labels:

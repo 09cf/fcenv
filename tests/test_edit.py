@@ -380,6 +380,42 @@ class TestRender(unittest.TestCase):
         self.assertIn("all at (20, 100)", r.notes())
 
 
+class TestRun(unittest.TestCase):
+    def test_solves_like_fccore(self):
+        from fcenv import run
+
+        goal = LEVEL.replace("<x>300</x><y>0</y></position><width>100</width>",
+                             "<x>0</x><y>260</y></position><width>400</width>")
+        r = run.simulate(goal)  # the goal rect falls onto the floor, inside
+        with fccore.Sim(goal) as sim:
+            self.assertEqual(r.solve_tick, sim.run(3000))
+        self.assertEqual((r.end, r.ticks), ("solved", r.solve_tick))
+        self.assertEqual(r.states.shape[0], r.ticks + 1)
+        self.assertTrue(r.summary().startswith(f"Solved at tick {r.solve_tick}"))
+
+    def test_timeout_and_images(self):
+        from fcenv import run
+
+        r = run.simulate(LEVEL, timeout=45)
+        self.assertEqual((r.end, r.ticks, r.solve_tick), ("timeout", 45, None))
+        self.assertIn("closest at tick", r.summary())
+        self.assertNotIn("Joint breaks", r.summary())  # only mentioned if any
+        for img in (r.frame(20), r.trails(), r.onion(count=4)):
+            self.assertTrue(img.png.startswith(b"\x89PNG"))
+        pages = r.filmstrip(stride=5, per_page=4)
+        self.assertEqual(len(pages), 3)  # ticks 0, 5, ..., 45: 10 frames
+
+    def test_goal_piece_leaving_the_world_ends_the_run(self):
+        from fcenv import run
+
+        # no floor: the goal rect falls out of the world
+        x = LEVEL.replace("<y>300</y>", "<y>5000</y>")
+        r = run.simulate(x, timeout=3000)
+        self.assertEqual((r.end, r.left_level), ("goal piece left the world", 0))
+        self.assertLess(r.ticks, 3000)
+        self.assertGreater(r.state(r.ticks, 0)[1], 1400)
+
+
 class TestRealDesigns(unittest.TestCase):
     """Against the dataset designs (skipped if not fetched)."""
 
@@ -419,6 +455,17 @@ class TestRealDesigns(unittest.TestCase):
                     inner = render.render(x, h.zoom).hidden
                     # what's left after zooming in is joints at one point
                     self.assertTrue(all(g.zoom is None for g in inner), (uid, h.zoom))
+
+    def test_runs_match_fccore(self):
+        from fcenv import run
+
+        for uid, path, *_ in self.cases[::60]:
+            x = path.read_text()
+            r = run.simulate(x, timeout=600)
+            with fccore.Sim(x) as sim:
+                want = sim.run(600)
+            if r.end != "goal piece left the world":
+                self.assertEqual(r.solve_tick, want, uid)
 
     def test_delete_last_player_piece(self):
         n = 0
