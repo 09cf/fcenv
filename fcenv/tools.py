@@ -18,7 +18,10 @@ from .edit import NewRef, Offset, Polar
 
 _JOINT = {"type": "string", "description": 'A joint, "block.slot", e.g. "3.1".'}
 _POINT_OR_JOINT = {
-    "description": ('A joint ("3.1") to connect to, or a free point: [x, y], '
+    "anyOf": [{"type": "string"},
+              {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+              {"type": "object"}],
+    "description": ('A joint name string ("3.1") to connect to, or a free point: [x, y], '
                     '{"from": joint, "offset": [dx, dy]} or '
                     '{"from": joint, "length": L, "angle": degrees}.'),
 }
@@ -91,7 +94,13 @@ TOOLS = [
 from .docs import HELP  # noqa: E402  (the on-demand reference)
 
 
+def _not_a_number(v):
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        raise ValueError(f'joint names are strings: "{v}", not {v}')
+
+
 def _joint(s):
+    _not_a_number(s)
     m = re.fullmatch(r"\s*(@?)(\d+)\.(\d+)\s*", str(s))
     if not m:
         raise ValueError(f"{s!r} is not a joint like \"3.1\"")
@@ -100,6 +109,7 @@ def _joint(s):
 
 
 def _endpoint(v):
+    _not_a_number(v)
     if isinstance(v, str):
         return _joint(v)
     if isinstance(v, dict):
@@ -118,8 +128,9 @@ def _region(v, default):
     return v if isinstance(v, str) else tuple(float(c) for c in v)
 
 
-def dispatch(session, name, args):
-    """Run tool `name` with JSON `args` on `session`: (ok, content blocks)."""
+def dispatch(session, name, args, **meta):
+    """Run tool `name` with JSON `args` on `session`: (ok, content blocks).
+    `meta` goes into the call's log entry."""
     args = dict(args or {})
     s = session
     fns = {
@@ -155,7 +166,8 @@ def dispatch(session, name, args):
     }
     from .session import Result
     # every call is logged and counted, unknown tools included
-    res = s.call(name, args, fns.get(name, lambda: Result(False, f"Unknown tool {name!r}.")))
+    res = s.call(name, args, fns.get(name, lambda: Result(False, f"Unknown tool {name!r}.")),
+                 **meta)
     blocks = [{"type": "text", "text": res.text}]
     for png in res.images:
         blocks.append({"type": "image", "source": {

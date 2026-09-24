@@ -178,9 +178,45 @@ building, winning, running, images, saves.
   pieces. Their terrain matches the server's copies in the cached designs.
   `levels/` is gitignored, like `decomp/`.
 
+## Agent harness
+
+`fcenv/harness.py` runs Claude on one level through the Messages API
+(needs `pip install anthropic`, plus an API key or an `ant auth login`
+profile):
+
+```
+python3 -m fcenv.harness level.xml --out runs/try1 [--model claude-opus-5]
+    [--effort high] [--max-tool-calls 200] [--max-turns 300]
+python3 -m fcenv.harness level.xml --out x --print-prompt   # no API calls
+```
+
+- The task prompt is the first user message; the tools are `tools.TOOLS`.
+  Each turn's tool calls are dispatched in order and returned together.
+  Thinking is adaptive (with summaries kept in the transcript).
+- The history is append-only, images included, with automatic prompt
+  caching. At about 1,400 tokens per image, a 200-call episode fits easily
+  in the context.
+- If the agent replies without calling a tool, it's told no one is there
+  and to carry on (twice, then the episode ends).
+- The episode ends on submit, the tool-call limit, the turn limit or a
+  refusal. If the agent didn't submit, the current design is evaluated
+  anyway; `submitted_by_agent` in `result.json` records which.
+- Output, written as the episode goes:
+  - `result.json`: stop reason, solved and when, counts, token usage;
+  - `transcript.jsonl`: every message, timestamped, with images saved under
+    `images/`;
+  - `tools.jsonl`: one entry per tool call (tool, arguments, result text,
+    time, design version before and after, and the turn and `tool_use_id`
+    that link it to the transcript);
+  - `versions.jsonl`: the XML of every design version. With `tools.jsonl`
+    it's the whole build process step by step (e.g. for rendering it as a
+    video), and runs can be recomputed from the version they ran on;
+  - the final design as `final.xml`, `final_save.xml`, `final_view.png`
+    and `final_trails.png`.
+
 ## Tests
 
-`python3 -m unittest tests.test_edit tests.test_render tests.test_session`
-(after `make -C
-core`). Tests that use real designs need `core/tests/fetch_designs.py` run
+`python3 -m unittest tests.test_edit tests.test_render tests.test_session
+tests.test_harness` (after `make -C core`; the harness tests use a scripted
+client, not the API). Tests that use real designs need `core/tests/fetch_designs.py` run
 once; they're skipped otherwise.

@@ -50,9 +50,9 @@ class Session:
 
     # ------------------------------------------------------------ plumbing
 
-    def call(self, tool, args, fn):
+    def call(self, tool, args, fn, **meta):
         """Run one tool call: check the session is open and within budget,
-        run it, log it."""
+        run it, log it (with `meta`, e.g. the caller's ids for the call)."""
         before = self.current
         if self.done:
             res = Result(False, "The session has ended (the design was submitted).")
@@ -65,7 +65,8 @@ class Session:
                 res = Result(False, f"Bad arguments: {e}")
         self.log.append({"call": len(self.log), "time": time.time(), "tool": tool,
                          "args": args, "ok": res.ok, "text": res.text,
-                         "version_before": before, "version_after": self.current})
+                         "version_before": before, "version_after": self.current,
+                         **meta})
         return res
 
     def _commit(self, result, describe_change):

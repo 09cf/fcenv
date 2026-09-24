@@ -43,6 +43,13 @@ class TestTools(unittest.TestCase):
         ok, text, _ = call(s, "add_wheel", spin="cw", center="1.1")
         self.assertEqual(text, "Added cw wheel #4 (centre 4.0 = 1.1).")
 
+    def test_joints_given_as_numbers(self):
+        s = Session(LEVEL)
+        ok, text, _ = call(s, "add_wheel", spin="cw", center=0.1)
+        self.assertEqual((ok, text), (False, 'Bad arguments: joint names are strings: "0.1", not 0.1'))
+        ok, text, _ = call(s, "move_joint", joint=0.0, to=[0, 0])
+        self.assertIn('"0.0", not 0.0', text)
+
     def test_rejections_and_bad_arguments(self):
         s = Session(LEVEL)
         ok, text, _ = call(s, "add_rod", kind="wood", a=[-50, 0], b=[50, 0])
