@@ -5,8 +5,7 @@ An environment for playing Fantastic Contraption through an API.
 - `core/`: fccore, headless physics extracted from fcsim, with a C API and
   ctypes bindings. See `core/README.md`.
 - `fcenv/`: the Python layer agents use to build designs.
-- `tests/`: tests for `fcenv/` (`python3 -m unittest discover tests`; needs
-  `make -C core` first).
+- `tests/`: tests for `fcenv/` (see [Tests](#tests)).
 
 ## Editing designs
 
@@ -101,15 +100,16 @@ Rendering needs `pycairo`.
 ## Runs
 
 `run.simulate(xml, timeout=3000)` plays the design once and returns a
-`Run`: every block's state at every tick, kept as a static object to query
-and draw at any tick (the physics is fast next to an agent's thinking).
+`Run`: every block's position and angle at every tick (float32, 12 bytes
+per block per tick), kept as a static object to query and draw at any tick
+(the physics is fast next to an agent's thinking).
 A run stops early when it's solved, or when a goal piece leaves the physics
 world, since Box2D freezes it there and it never returns.
 
 - `run.summary()`: the outcome, each goal piece's start and end, and for
   unsolved runs its closest approach to the goal area. Joint breaks are
   listed only if there were any.
-- `run.state(tick, block_id)`: (x, y, angle, vx, vy, omega).
+- `run.state(tick, block_id)`: (x, y, angle).
 - Images show the whole level (`view="level"`, the default), or
   `view="action"`: where the pieces are in that time window, plus the goal
   area.
@@ -132,3 +132,18 @@ world, since Box2D freezes it there and it never returns.
     within 20°, similar length) are dropped in a random order, so every
     arrow drawn is still a real trace.
 
+
+## Levels and saving
+
+- `levels.fetch(link)` gets a level or design's XML from
+  fantasticcontraption.com, given any link with `levelId=`/`designId=` (FC's
+  or fcsim's) or an id like `L646726`. It's for setting up an environment;
+  nothing else uses the network.
+- `levels.to_save_design(xml, name, description)` gives FC's saveDesign
+  format, which FC and fcsim export.
+
+## Tests
+
+`python3 -m unittest tests.test_edit tests.test_render` (after `make -C
+core`). Tests that use real designs need `core/tests/fetch_designs.py` run
+once; they're skipped otherwise.

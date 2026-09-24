@@ -35,7 +35,7 @@ _TRAIL_COLOURS = [(0.85, 0.1, 0.55), (0.1, 0.35, 0.95), (0.95, 0.5, 0.0),
 class Run:
     xml: str
     ticks: int  # ticks simulated; states cover ticks 0..ticks
-    states: np.ndarray  # (ticks + 1, blocks, 6): x, y, angle, vx, vy, omega
+    states: np.ndarray  # (ticks + 1, blocks, 3) float32: x, y, angle
     solve_tick: int  # None if not solved
     end: str  # "solved", "timeout" or "goal piece left the world"
     left_level: int = None  # ID of the goal piece that left, if any
@@ -46,7 +46,7 @@ class Run:
     # ------------------------------------------------------------ queries
 
     def state(self, tick, block_id):
-        """(x, y, angle, vx, vy, omega) of a player block at `tick`."""
+        """(x, y, angle) of a player block at `tick`."""
         i = list(self._scene.design_ids).index(block_id)
         return tuple(self.states[tick, i])
 
@@ -87,7 +87,8 @@ class Run:
     # ------------------------------------------------------------ images
 
     def _states_at(self, tick):
-        return [fccore.BodyState(*self.states[tick, i]) for i in range(self.states.shape[1])]
+        return [fccore.BodyState(*map(float, self.states[tick, i]))
+                for i in range(self.states.shape[1])]
 
     def _scene_at(self, tick):
         return self._scene.at(self._states_at(tick))
@@ -189,14 +190,14 @@ class Run:
         return overlay
 
     def frame(self, tick, size=1024, view="level", block_labels=False, motion=False,
-              horizon=6):
+              horizon=6, grid="lines"):
         """The level at `tick`. motion=True adds arrows showing how points on
         each moving piece move over the next `horizon` ticks (capped arrows,
         with a double head, moved further)."""
         tick = self._window(tick, tick)[0]
         caption = f"tick {tick}" + (f", arrows: next {horizon} ticks" if motion else "")
         return R._render_scene(self._scene_at(tick), self._view(view, tick, tick), size,
-                               labels="none", block_labels=block_labels,
+                               grid=grid, labels="none", block_labels=block_labels,
                                overlay=self._motion(tick, horizon) if motion else None,
                                caption=caption)
 
@@ -292,16 +293,20 @@ def simulate(xml, timeout=3000, until_solved=True):
 
     with fccore.Sim(xml.encode()) as sim:
         n = sim.n_blocks
-        states = np.empty((timeout + 1, n, 6))
-        states[0] = [(s.x, s.y, s.angle, s.vx, s.vy, s.omega) for s in sim.state()]
+        # positions and angles only, as float32: long runs of big designs
+        # stay small (12 bytes per block per tick)
+        states = np.empty((timeout + 1, n, 3), dtype=np.float32)
+        states[0] = [(s.x, s.y, s.angle) for s in sim.state()]
         idx = (C.c_int32 * n)(*range(n))
+        buf = np.empty((n, 6))
+        buf_ptr = buf.ctypes.data_as(C.POINTER(fccore.BodyState))
         joint_pairs = [(j.block1, j.block2, j.x, j.y) for j in sim.joints()]
         breaks, end, left = [], "timeout", None
         t = 0
         while t < timeout:
-            row = states[t + 1].ctypes.data_as(C.POINTER(fccore.BodyState))
-            fccore._lib.fc_sim_record(sim._h, 1, 1, idx, n, row)
+            fccore._lib.fc_sim_record(sim._h, 1, 1, idx, n, buf_ptr)
             t += 1
+            states[t] = buf[:, :3]
             if fccore._lib.fc_sim_get_joints(sim._h, None, 0) != len(joint_pairs):
                 now = [(j.block1, j.block2, j.x, j.y) for j in sim.joints()]
                 alive = {(a, b) for a, b, _, _ in now}

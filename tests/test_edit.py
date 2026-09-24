@@ -449,6 +449,24 @@ class TestRun(unittest.TestCase):
         # goal rect's five
         self.assertEqual(len(scene.at(scene.state).joints), 10)
 
+    def test_spin_names_match_the_screen(self):
+        # +y is down, so clockwise on screen is positive angle, and a
+        # clockwise car rolls right
+        from fcenv import run
+
+        for spin, sign in (("cw", 1), ("ccw", -1), ("none", 0)):
+            x = ok(edit.add_rod(LEVEL, "wood", (60, 150), (140, 150))).xml
+            x = ok(edit.add_wheel(x, spin, JointRef(1, 0))).xml
+            x = ok(edit.add_wheel(x, spin, JointRef(1, 1))).xml
+            r = run.simulate(x, timeout=150)
+            dx = r.state(150, 2)[0] - r.state(0, 2)[0]
+            turned = r.state(150, 2)[2] - r.state(0, 2)[2]
+            if sign:
+                self.assertGreater(dx * sign, 50, spin)
+                self.assertGreater(turned * sign, 5, spin)
+            else:
+                self.assertAlmostEqual(turned, 0, places=3)
+
     def test_goal_piece_leaving_the_world_ends_the_run(self):
         from fcenv import run
 
@@ -458,6 +476,30 @@ class TestRun(unittest.TestCase):
         self.assertEqual((r.end, r.left_level), ("goal piece left the world", 0))
         self.assertLess(r.ticks, 3000)
         self.assertGreater(r.state(r.ticks, 0)[1], 1400)
+
+
+class TestLevels(unittest.TestCase):
+    def test_parse_link(self):
+        from fcenv.levels import parse_link
+
+        self.assertEqual(parse_link("http://FantasticContraption.com/?designId=12707776"),
+                         ("design", 12707776))
+        self.assertEqual(parse_link("https://ft.jtai.dev/?levelId=646726"), ("level", 646726))
+        self.assertEqual(parse_link("L688109"), ("level", 688109))
+        with self.assertRaises(ValueError):
+            parse_link("https://example.com/")
+
+    def test_save_design(self):
+        from fcenv.levels import to_save_design
+
+        x = ok(edit.add_rod(LEVEL, "wood", JointRef(GOAL, 1), (80, -20))).xml
+        s = to_save_design(x, name="car & ramp", description="<test>")
+        self.assertTrue(s.startswith('<?xml version="1.0"?><saveDesign><name>car &amp; ramp'))
+        self.assertIn("<levelId>1</levelId><isSolution>0</isSolution><level>", s)
+        # it loads as the same design
+        self.assertEqual(edit.describe(s)["joints"], edit.describe(x)["joints"])
+        with fccore.Sim(s) as a, fccore.Sim(x) as b:
+            self.assertEqual(a.record_array(30).tobytes(), b.record_array(30).tobytes())
 
 
 class TestRealDesigns(unittest.TestCase):
