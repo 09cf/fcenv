@@ -66,16 +66,44 @@ class _Scene:
         self.flags = {i: b["flags"] for i, b in enumerate(d["blocks"])}
         self.joints = d["joints"]  # x, y, name, members
 
-    def at(self, state, anchors):
-        """A copy showing a runtime state: bodies at `state`, joints at the
-        physics anchors `anchors` [(x, y)], no legality tint, no names."""
+    def at(self, state):
+        """A copy showing a runtime state: bodies at `state`, every piece's
+        joints where they are then, no legality tint, no names."""
         import copy
 
         s = copy.copy(self)
         s.state = state
         s.flags = {}
-        s.joints = [{"x": x, "y": y, "name": None, "members": []} for x, y in anchors]
+        s.joints = [{"x": x, "y": y, "name": None, "members": []}
+                    for i in range(self.n_design) for x, y in self._joints_at(i, state[i])]
         return s
+
+    def _joints_at(self, i, st):
+        """Block i's joint positions with its body at `st`: rod ends; a goal
+        rect's centre and corners; a wheel's centre and circumference
+        joints (turning with the body), plus its inner joints if radius >
+        20, which start axis-aligned and turn by as much as the body has."""
+        info = self.blocks[i]
+        c, s = math.cos(st.angle), math.sin(st.angle)
+        if info.type_id in (fccore.WATER_ROD, fccore.SOLID_ROD):
+            dx, dy = c * info.w / 2, s * info.w / 2
+            return [(st.x - dx, st.y - dy), (st.x + dx, st.y + dy)]
+        if info.shape == fccore.SHAPE_CIRCLE:
+            out = [(st.x, st.y)]
+            for k in range(4):
+                a = st.angle + k * math.pi / 2
+                out.append((st.x + math.cos(a) * info.radius, st.y + math.sin(a) * info.radius))
+            if info.radius > 20:
+                turned = st.angle - self.state[i].angle
+                for k in range(4):
+                    a = turned + k * math.pi / 2
+                    out.append((st.x + math.cos(a) * 20, st.y + math.sin(a) * 20))
+            return out
+        out = [(st.x, st.y)]
+        for sx, sy in ((1, -1), (-1, -1), (1, 1), (-1, 1)):
+            px, py = sx * info.w / 2, sy * info.h / 2
+            out.append((st.x + c * px - s * py, st.y + s * px + c * py))
+        return out
 
     def extent(self, i):
         """Axis-aligned bounds of block i."""
@@ -200,11 +228,12 @@ def render(xml, view="build", size=1024, margin=None, grid="lines",
 
 def _render_scene(scene, frame, size=1024, grid="lines", labels="clusters",
                   block_labels=False, zoom_hints="none", underlay=None, overlay=None,
-                  caption=None):
+                  caption=None, joint_px=3.0):
     """Draw `scene` in the region `frame`. underlay(cr, scale, pieces) runs
     after the terrain and before the pieces, overlay(cr, scale, pieces)
     after the joints, both in world coordinates; pieces(states, alpha)
-    draws the pieces at other states (e.g. ghosts)."""
+    draws the pieces at other states (e.g. ghosts). Joint rings are drawn
+    at least `joint_px` pixels in radius."""
     x0, y0, x1, y1 = frame
     ruler = 0 if grid == "none" else 34
     scale = (size - ruler) / max(x1 - x0, y1 - y0)
@@ -296,7 +325,7 @@ def _render_scene(scene, frame, size=1024, grid="lines", labels="clusters",
         draw_block(i, "both")
 
     # joints: fcsim's grey rings (radius 2-4), at least a few pixels wide
-    r_out = max(4.0, 3.0 / scale)
+    r_out = max(4.0, joint_px / scale)
     cr.set_source_rgb(*_rgb(_JOINT))
     cr.set_line_width(r_out * 0.5)
     for j in scene.joints:

@@ -40,6 +40,8 @@ Operations:
 - `move_joint(xml, joint, to)`: as in fcsim's editor, non-rod blocks with a
   joint in the moved set (wheels, goal pieces) move rigidly, and rods
   stretch; nothing connects or disconnects.
+- `move_component(xml, block, dx, dy)`: translate everything connected to
+  `block`, rods included, so nothing stretches.
 
 - **Connections are explicit.** An endpoint is a `JointRef` (connect to that
   joint) or an `(x, y)` point (a new free joint there). Nothing snaps.
@@ -108,10 +110,14 @@ world, since Box2D freezes it there and it never returns.
   unsolved runs its closest approach to the goal area. Joint breaks are
   listed only if there were any.
 - `run.state(tick, block_id)`: (x, y, angle, vx, vy, omega).
-- Images, all in the level view:
+- Images show the whole level (`view="level"`, the default), or
+  `view="action"`: where the pieces are in that time window, plus the goal
+  area.
   - `run.frame(tick)`;
-  - `run.trails()`: goal-piece paths over the final frame;
-  - `run.onion(count)`: faded copies of the pieces at earlier ticks;
-  - `run.filmstrip(stride=… or ticks=[…], per_page=9)`: a list of pages
-    of captioned frames.
+  - `run.trails(start=0, end=None, which="goal")`: goal-piece (or
+    `"all"`) paths between two ticks, drawn on the frame at `end`;
+  - `run.filmstrip(start=0, end=None, stride=… or ticks=[…], per_page=9)`:
+    a list of pages of captioned frames.
+- Every joint of every piece is drawn at every tick, wheels' unused
+  circumference joints included.
 

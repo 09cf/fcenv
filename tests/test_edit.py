@@ -301,6 +301,27 @@ class TestMove(unittest.TestCase):
         err(edit.move_joint(self.x, JointRef(1, 1), (0, 20)), ErrorCode.OVERLAP)
 
 
+class TestMoveComponent(unittest.TestCase):
+    def test_translates_everything_connected(self):
+        x = ok(edit.add_rod(LEVEL, "wood", JointRef(GOAL, 1), (80, -20))).xml  # 1
+        x = ok(edit.add_wheel(x, "cw", JointRef(1, 1))).xml  # 2
+        x = ok(edit.add_rod(x, "water", (-150, 100), (-100, 100))).xml  # 3, separate
+        r = ok(edit.move_component(x, 2, 10, -30))
+        self.assertEqual(r.info["moved"], [0, 1, 2])
+        before, after = edit.describe(x)["blocks"], edit.describe(r.xml)["blocks"]
+        for b, a in zip(before, after):
+            shift = (10, -30) if b["id"] != 3 else (0, 0)
+            self.assertEqual((a["x"] - b["x"], a["y"] - b["y"]), shift)
+            self.assertEqual((a["angle"], a["width"]), (b["angle"], b["width"]))
+        self.assertEqual(stacks(r.xml), stacks(x))
+
+    def test_rejections(self):
+        x = ok(edit.add_rod(LEVEL, "wood", (60, 100), (120, 100))).xml
+        err(edit.move_component(x, 1, 500, 0), ErrorCode.OUTSIDE_BUILD_AREA)
+        err(edit.move_component(x, 1, -100, -100), ErrorCode.OVERLAP)  # into the goal rect
+        err(edit.move_component(x, 7, 0, 0), ErrorCode.BAD_REFERENCE)
+
+
 class TestRelative(unittest.TestCase):
     def test_offset_and_polar(self):
         r = ok(edit.add_rod(LEVEL, "wood", JointRef(GOAL, 1), Offset(JointRef(GOAL, 1), 60, 0)))
@@ -400,10 +421,32 @@ class TestRun(unittest.TestCase):
         self.assertEqual((r.end, r.ticks, r.solve_tick), ("timeout", 45, None))
         self.assertIn("closest at tick", r.summary())
         self.assertNotIn("Joint breaks", r.summary())  # only mentioned if any
-        for img in (r.frame(20), r.trails(), r.onion(count=4)):
+        for img in (r.frame(20), r.trails(), r.trails(start=10, end=30, view="action"),
+                    r.frame(20, view="action")):
             self.assertTrue(img.png.startswith(b"\x89PNG"))
         pages = r.filmstrip(stride=5, per_page=4)
         self.assertEqual(len(pages), 3)  # ticks 0, 5, ..., 45: 10 frames
+        pages = r.filmstrip(start=20, end=40, stride=10)
+        self.assertEqual(len(pages), 1)  # ticks 20, 30, 40
+
+    def test_action_view_frames_the_pieces(self):
+        from fcenv import run
+
+        r = run.simulate(LEVEL, timeout=45)
+        x0, y0, x1, y1 = r._view("action", 0, 45)
+        lx0, ly0, lx1, ly1 = r._view("level", 0, 45)
+        self.assertLess(x1 - x0, lx1 - lx0)  # tighter than the level
+        gx, gy = r.state(45, 0)[:2]
+        self.assertTrue(x0 < gx < x1 and y0 < gy < y1)
+
+    def test_runtime_frames_draw_every_wheel_joint(self):
+        from fcenv import render
+
+        x = ok(edit.add_wheel(LEVEL, "cw", (100, 0))).xml
+        scene = render._Scene(x)
+        # the wheel's centre and all four circumference joints, plus the
+        # goal rect's five
+        self.assertEqual(len(scene.at(scene.state).joints), 10)
 
     def test_goal_piece_leaving_the_world_ends_the_run(self):
         from fcenv import run

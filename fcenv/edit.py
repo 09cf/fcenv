@@ -614,6 +614,28 @@ def move_joint(xml, joint, to, rules=Rules()):
     return _run(go)
 
 
+def move_component(xml, block, dx, dy, rules=Rules()):
+    """Translate the whole connected component containing block `block`
+    (every block joined to it through shared joints, goal pieces included)
+    by (dx, dy). Nothing stretches, connects or disconnects.
+    info: moved (block IDs), delta."""
+    def go():
+        st = _load(xml)
+        i0 = st.index(block)
+        comp = next(g for g in _components(st.graph) if i0 in g)
+        blocks = list(st.design.player_blocks)
+        for i in comp:
+            b = blocks[i]
+            v = dict(b.values, x=fmt(b.num("x") + float(dx)), y=fmt(b.num("y") + float(dy)))
+            blocks[i] = replace(b, values=v)
+        design = replace(st.design, player_blocks=tuple(blocks))
+        n = len(blocks)
+        info = {"moved": sorted(st.bid(i) for i in comp), "delta": (float(dx), float(dy))}
+        return _commit(st, design, copy_graph(st.graph), set(comp), list(range(n)),
+                       [list(j) for j in st.orig_jointed], info)
+    return _run(go)
+
+
 # ------------------------------------------------------------------ queries
 
 

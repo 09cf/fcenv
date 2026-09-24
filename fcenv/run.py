@@ -4,11 +4,11 @@ queried and drawn at any tick (the physics is fast next to agent thought).
     run = simulate(xml, timeout=3000)
     print(run.summary())
     run.frame(120).png        # the level at tick 120
-    run.trails().png          # goal-piece paths over the final frame
-    run.onion(count=8).png    # faded copies of the pieces over time
-    [p.png for p in run.filmstrip(stride=60)]  # pages of captioned frames
+    run.trails(start=100).png # goal-piece paths, ticks 100 to the end
+    [p.png for p in run.filmstrip(start=60, end=300, stride=30)]  # pages
 
-All images use the level view.
+Images show the whole level by default, or view="action" to frame where
+the pieces are in that window (plus the goal area).
 """
 
 import ctypes as C
@@ -82,37 +82,52 @@ class Run:
 
     # ------------------------------------------------------------ images
 
-    def _snapshots(self, ticks):
-        """{tick: scene at that tick}, by replaying the design once."""
-        want = sorted(set(int(t) for t in ticks))
-        out = {}
-        with fccore.Sim(self.xml.encode()) as sim:
-            for t in want:
-                sim.step(t - sim.tick)
-                anchors = [(j.x, j.y) for j in sim.joints()]
-                out[t] = self._scene.at(sim.state(), anchors)
-        return out
-
     def _states_at(self, tick):
         return [fccore.BodyState(*self.states[tick, i]) for i in range(self.states.shape[1])]
 
-    def frame(self, tick, size=1024, block_labels=False):
-        """The level at `tick`."""
-        tick = min(max(int(tick), 0), self.ticks)
-        scene = self._snapshots([tick])[tick]
-        return R._render_scene(scene, self._frame, size, labels="none",
-                               block_labels=block_labels, caption=f"tick {tick}")
+    def _scene_at(self, tick):
+        return self._scene.at(self._states_at(tick))
 
-    def trails(self, size=1024, which="goal"):
-        """Paths of the goal pieces (which="goal") or all pieces ("all") over
-        the whole run, drawn on the final frame."""
+    def _window(self, start, end):
+        start = min(max(int(start), 0), self.ticks)
+        end = self.ticks if end is None else min(max(int(end), start), self.ticks)
+        return start, end
+
+    def _view(self, view, start, end):
+        """The region to show: "level" (the whole level), "action" (where the
+        pieces are between ticks start and end, plus the goal area, with a
+        margin), or an explicit (x0, y0, x1, y1)."""
+        if view == "level":
+            return self._frame
+        if view != "action":
+            return tuple(view)
+        pts = self.states[start:end + 1, :self._scene.n_design, :2].reshape(-1, 2)
+        gx, gy, gw, gh = self._scene.goal
+        xs = np.concatenate([pts[:, 0], [gx - gw / 2, gx + gw / 2]])
+        ys = np.concatenate([pts[:, 1], [gy - gh / 2, gy + gh / 2]])
+        x0, x1, y0, y1 = xs.min(), xs.max(), ys.min(), ys.max()
+        pad = max(0.08 * max(x1 - x0, y1 - y0), 40)  # 40 covers most piece sizes
+        wx0, wy0, wx1, wy1 = R._WORLD
+        return (max(x0 - pad, wx0), max(y0 - pad, wy0), min(x1 + pad, wx1), min(y1 + pad, wy1))
+
+    def frame(self, tick, size=1024, view="level", block_labels=False):
+        """The level at `tick`."""
+        tick = self._window(tick, tick)[0]
+        return R._render_scene(self._scene_at(tick), self._view(view, tick, tick), size,
+                               labels="none", block_labels=block_labels,
+                               caption=f"tick {tick}")
+
+    def trails(self, start=0, end=None, which="goal", size=1024, view="level"):
+        """Paths of the goal pieces (which="goal") or all pieces ("all")
+        between ticks start and end (default: the whole run), drawn on the
+        frame at `end`. A dot marks where each path starts."""
+        start, end = self._window(start, end)
         blocks = self._goals if which == "goal" else range(self._scene.n_design)
-        scene = self._snapshots([self.ticks])[self.ticks]
 
         def overlay(cr, scale, pieces):
             for k, i in enumerate(blocks):
                 colour = _TRAIL_COLOURS[k % len(_TRAIL_COLOURS)]
-                xs, ys = self.states[:, i, 0], self.states[:, i, 1]
+                xs, ys = self.states[start:end + 1, i, 0], self.states[start:end + 1, i, 1]
                 cr.set_source_rgba(*colour, 0.9)
                 cr.set_line_width(2.5 / scale)
                 cr.new_path()
@@ -121,44 +136,38 @@ class Run:
                     cr.line_to(x, y)
                 cr.stroke()
                 cr.new_path()
-                cr.arc(xs[0], ys[0], 5 / scale, 0, 2 * math.pi)  # start
+                cr.arc(xs[0], ys[0], 5 / scale, 0, 2 * math.pi)
                 cr.fill()
 
-        return R._render_scene(scene, self._frame, size, labels="none", overlay=overlay,
-                               caption=f"trails, ticks 0-{self.ticks}")
+        return R._render_scene(self._scene_at(end), self._view(view, start, end), size,
+                               labels="none", overlay=overlay,
+                               caption=f"trails, ticks {start}-{end}")
 
-    def onion(self, count=8, size=1024):
-        """The final frame, with faded copies of the pieces at `count`
-        evenly spaced earlier ticks (older = fainter)."""
-        ticks = [round(self.ticks * k / count) for k in range(count)]
-        scene = self._snapshots([self.ticks])[self.ticks]
-
-        def underlay(cr, scale, pieces):
-            for k, t in enumerate(ticks):
-                pieces(self._states_at(t), alpha=0.12 + 0.4 * k / max(count - 1, 1))
-
-        return R._render_scene(scene, self._frame, size, labels="none", underlay=underlay,
-                               caption=f"ticks {', '.join(map(str, ticks))} -> {self.ticks}")
-
-    def filmstrip(self, ticks=None, stride=None, per_page=9, size=1024):
-        """Frames at `ticks` (or every `stride` ticks, including the last),
-        laid out `per_page` to an image in a square grid. Returns a list of
-        pages (Render objects, without hidden-label info)."""
+    def filmstrip(self, start=0, end=None, stride=None, ticks=None, per_page=9, size=1024,
+                  view="level"):
+        """Frames at `ticks`, or every `stride` ticks from start to end
+        (always including end), laid out `per_page` to an image in a square
+        grid. With view="action", all pages share one frame: where the
+        pieces are across the whole window. Returns a list of pages."""
+        start, end = self._window(start, end)
         if ticks is None:
-            stride = stride or max(1, math.ceil(self.ticks / per_page))
-            ticks = list(range(0, self.ticks + 1, stride))
-            if ticks[-1] != self.ticks:
-                ticks.append(self.ticks)
+            stride = stride or max(1, math.ceil((end - start) / per_page))
+            ticks = list(range(start, end + 1, stride))
+            if ticks[-1] != end:
+                ticks.append(end)
         ticks = sorted(set(min(max(int(t), 0), self.ticks) for t in ticks))
-        snaps = self._snapshots(ticks)
+        region = self._view(view, ticks[0], ticks[-1])
         cols = math.ceil(math.sqrt(per_page))
         cell = size // cols
         pages = []
-        for start in range(0, len(ticks), per_page):
-            chunk = ticks[start:start + per_page]
+        for first in range(0, len(ticks), per_page):
+            chunk = ticks[first:first + per_page]
             rows = math.ceil(len(chunk) / cols)
-            imgs = [R._render_scene(snaps[t], self._frame, cell, grid="none",
-                                    labels="none", caption=f"tick {t}").png for t in chunk]
+            # small cells: smaller joint rings, or they swamp small wheels
+            imgs = [R._render_scene(self._scene_at(t), region, cell, grid="none",
+                                    labels="none", caption=f"tick {t}",
+                                    joint_px=1.5 if cell < 500 else 3.0).png
+                    for t in chunk]
             surfs = [cairo.ImageSurface.create_from_png(io.BytesIO(p)) for p in imgs]
             cw = max(s.get_width() for s in surfs)
             ch = max(s.get_height() for s in surfs)
@@ -171,7 +180,7 @@ class Run:
                 cr.paint()
             buf = io.BytesIO()
             page.write_to_png(buf)
-            pages.append(R.Render(buf.getvalue(), self._frame, []))
+            pages.append(R.Render(buf.getvalue(), region, []))
         return pages
 
 
