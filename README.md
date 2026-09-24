@@ -77,3 +77,22 @@ dataset designs re-serialize with identical physics.
 
 No physics is stepped during edits.
 
+## Viewing designs
+
+- `view.summary(xml)`: text, with pieces grouped by connected component,
+  every joint under the name the API accepts, and exact level geometry.
+- `render.render(xml, view)`: a PNG in fcsim's colours, with grid lines and
+  joint labels. `view` is `"build"` (the build area plus a margin of its
+  surroundings), `"level"` (everything), or an `(x0, y0, x1, y1)` region.
+  It returns a `Render` with `.png`, `.view`, `.hidden` and `.notes()`:
+  - where labels would collide, the whole group is left unlabelled and
+    circled on the image;
+  - `.notes()` lists each unlabelled group's joint names and a region to
+    render it at, which is exactly the `view` argument for a zoomed render;
+  - joints at practically the same point share a label (`3.1/4.1/5.1`),
+    since no zoom separates them;
+  - wheels and goal circles only label their centre, plus any outer joint
+    something is attached to.
+
+Rendering needs `pycairo`.
+

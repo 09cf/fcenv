@@ -357,6 +357,29 @@ class TestSummary(unittest.TestCase):
         self.assertIn("L0 static rect, centre (0, 300), 2000 x 40; top edge y 280", s)
 
 
+class TestRender(unittest.TestCase):
+    def test_png_and_views(self):
+        from fcenv import render
+
+        x = ok(edit.add_rod(LEVEL, "wood", JointRef(GOAL, 1), (80, -20))).xml
+        for view in ("build", "level", (-50, -50, 150, 50)):
+            r = render.render(x, view)
+            self.assertTrue(r.png.startswith(b"\x89PNG"))
+            self.assertEqual(r.hidden, [])
+        self.assertEqual(render.render(x, (-50, -50, 150, 50)).view, (-50, -50, 150, 50))
+
+    def test_stacked_joints_are_reported(self):
+        from fcenv import render
+
+        x = ok(edit.add_rod(LEVEL, "water", JointRef(GOAL, 3), (20, 100), count=6)).xml
+        r = render.render(x, "build")
+        # the six free ends sit at one point: no zoom can separate them
+        stacked = [h for h in r.hidden if h.zoom is None]
+        self.assertEqual(len(stacked), 1)
+        self.assertEqual(sorted(stacked[0].names), [f"{b}.1" for b in range(1, 7)])
+        self.assertIn("all at (20, 100)", r.notes())
+
+
 class TestRealDesigns(unittest.TestCase):
     """Against the dataset designs (skipped if not fetched)."""
 
@@ -385,6 +408,17 @@ class TestRealDesigns(unittest.TestCase):
 
         for uid, path, *_ in self.cases[::25]:
             self.assertIn("Component 1", view.summary(path.read_text()), uid)
+
+    def test_zoom_hints_resolve_clusters(self):
+        from fcenv import render
+
+        for uid, path, *_ in self.cases[::40]:
+            x = path.read_text()
+            for h in render.render(x, "build").hidden:
+                if h.zoom:
+                    inner = render.render(x, h.zoom).hidden
+                    # what's left after zooming in is joints at one point
+                    self.assertTrue(all(g.zoom is None for g in inner), (uid, h.zoom))
 
     def test_delete_last_player_piece(self):
         n = 0
