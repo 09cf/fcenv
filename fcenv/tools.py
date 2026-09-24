@@ -88,16 +88,7 @@ TOOLS = [
     _tool("submit", "Submit the current design as final. Ends the session."),
 ]
 
-# the on-demand reference; filled in properly with the task prompt
-HELP = {
-    "joints": ("Joints are named block.slot. Rods: 0 and 1 are the ends. Wheels: 0 the "
-               "centre, 1-4 around the rim (right, below, left, above, turning with the "
-               "wheel), 5-8 at 20 from the centre on large wheels. Goal rects: 0 the "
-               "centre, 1-4 the corners. A joint shared by several pieces can be named "
-               "by any of them."),
-    "coordinates": ("+x is right and +y is down. Angles are degrees, clockwise on "
-                    "screen; 0 points right, 90 points down."),
-}
+from .docs import HELP  # noqa: E402  (the on-demand reference)
 
 
 def _joint(s):

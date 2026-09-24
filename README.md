@@ -156,6 +156,12 @@ plus PNG images for `view` and the run images.
   move_component, undo, redo, save, load, list_saves, describe, view, run,
   run_frame, run_trails, run_filmstrip, help, submit.
 
+`docs.task_prompt(session)` is the prompt for an agent starting a session:
+the task (an experimental eval; beat the level), the level's build area,
+goal area and goal pieces, the conventions, and the help topics.
+`docs.HELP` is the reference the `help` tool serves: pieces, joints,
+building, winning, running, images, saves.
+
 ## Levels and saving
 
 - `levels.fetch(link)` gets a level or design's XML from

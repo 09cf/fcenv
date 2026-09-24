@@ -107,5 +107,30 @@ class TestTools(unittest.TestCase):
         self.assertEqual((ok, text), (False, "Out of tool calls (limit 2)."))
 
 
+class TestDocs(unittest.TestCase):
+    def test_task_prompt_describes_the_level(self):
+        from fcenv.docs import task_prompt
+
+        p = task_prompt(Session(LEVEL, max_tool_calls=40))
+        self.assertIn("experimental evaluation", p)
+        self.assertIn("build area: x -200 to 200, y -200 to 200", p)
+        self.assertIn("goal area: x 250 to 350, y -50 to 50", p)
+        self.assertIn("goal pieces: 1 (#0)", p)
+        self.assertIn("You have 40 tool calls.", p)
+        self.assertIn("up to 200 seconds", p)
+
+    def test_help_topics(self):
+        from fcenv.docs import HELP
+
+        s = Session(LEVEL)
+        ok, text, _ = call(s, "help")
+        self.assertEqual(text, "Topics: " + ", ".join(HELP))
+        for topic in HELP:
+            ok, text, _ = call(s, "help", topic=topic)
+            self.assertEqual((ok, text), (True, HELP[topic]))
+        ok, text, _ = call(s, "help", topic="nope")
+        self.assertFalse(ok)
+
+
 if __name__ == "__main__":
     unittest.main()
