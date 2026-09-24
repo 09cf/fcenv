@@ -1,0 +1,230 @@
+"""A play session: one level, the agent's design versions, and a log.
+
+Everything goes through the pure functions in edit/view/render/run; the
+session only keeps:
+- versions: every design XML produced, append-only, plus which is current
+  (undo/redo move between them; edits and loads add new ones);
+- checkpoints: named designs the agent saved;
+- the latest run (earlier runs aren't kept; checkpoints cover comparing);
+- log: one entry per tool call, for recreating the whole session.
+"""
+
+import json
+import time
+from dataclasses import dataclass, field
+
+from . import edit, render, run as runs, view
+
+
+@dataclass
+class Result:
+    ok: bool
+    text: str
+    images: list = field(default_factory=list)  # PNG bytes
+
+
+class Session:
+    def __init__(self, level_xml, rules=edit.Rules(), submit_timeout=6000,
+                 max_tool_calls=None):
+        if isinstance(level_xml, bytes):
+            level_xml = level_xml.decode()
+        self.rules = rules
+        self.submit_timeout = submit_timeout
+        self.max_tool_calls = max_tool_calls
+        self.versions = [level_xml]
+        self.current = 0
+        self._undo, self._redo = [], []
+        self.checkpoints = {}  # name -> version index
+        self.last_run = None  # (Run, version index)
+        self.log = []
+        self.done = False
+        self.final = None  # the submitted evaluation run
+
+    @property
+    def xml(self):
+        return self.versions[self.current]
+
+    @property
+    def tool_calls(self):
+        return len(self.log)
+
+    # ------------------------------------------------------------ plumbing
+
+    def call(self, tool, args, fn):
+        """Run one tool call: check the session is open and within budget,
+        run it, log it."""
+        before = self.current
+        if self.done:
+            res = Result(False, "The session has ended (the design was submitted).")
+        elif self.max_tool_calls is not None and self.tool_calls >= self.max_tool_calls:
+            res = Result(False, f"Out of tool calls (limit {self.max_tool_calls}).")
+        else:
+            try:
+                res = fn()
+            except (ValueError, TypeError, KeyError) as e:
+                res = Result(False, f"Bad arguments: {e}")
+        self.log.append({"call": len(self.log), "time": time.time(), "tool": tool,
+                         "args": args, "ok": res.ok, "text": res.text,
+                         "version_before": before, "version_after": self.current})
+        return res
+
+    def _commit(self, result, describe_change):
+        if isinstance(result, edit.Err):
+            e = result.error
+            return Result(False, f"Rejected ({e.code.value}): {e.message}")
+        self._set(result.xml)
+        return Result(True, describe_change(result))
+
+    def _set(self, xml):
+        self._undo.append(self.current)
+        self._redo.clear()
+        self.versions.append(xml)
+        self.current = len(self.versions) - 1
+
+    def _joints_text(self, refs):
+        """'5.0 = 1.1, 5.1 at (80, -20)': each slot's joint, by name."""
+        joints = edit.describe(self.xml)["joints"]
+        out = []
+        for r in refs:
+            j = next(j for j in joints if r in j["members"])
+            name = j["name"]
+            if name != r:
+                out.append(f"{r.block}.{r.slot} = {name.block}.{name.slot}")
+            else:
+                out.append(f"{r.block}.{r.slot} at ({view._n(j['x'])}, {view._n(j['y'])})")
+        return ", ".join(out)
+
+    # ------------------------------------------------------------ build
+
+    def add_rods(self, rods):
+        def text(r):
+            kinds = [k for k, _, _ in rods]
+            parts = [f"{k} rod #{b} ({self._joints_text(js)})"
+                     for k, b, js in zip(kinds, r.info["blocks"], r.info["joints"])]
+            return "Added " + "; ".join(parts) + "."
+        return self._commit(edit.add_rods(self.xml, rods, self.rules), text)
+
+    def add_wheel(self, spin, center):
+        return self._commit(
+            edit.add_wheel(self.xml, spin, center, self.rules),
+            lambda r: f"Added {spin} wheel #{r.info['block']} (centre "
+                      f"{self._joints_text(r.info['joints'][:1])}).")
+
+    def delete(self, block):
+        return self._commit(edit.delete(self.xml, block, self.rules),
+                            lambda r: f"Deleted #{block}.")
+
+    def rewire(self, rod, end, to):
+        return self._commit(
+            edit.rewire(self.xml, rod, end, to, self.rules),
+            lambda r: f"Rewired rod #{rod}: {self._joints_text(r.info['joints'])}.")
+
+    def move_joint(self, joint, to):
+        return self._commit(
+            edit.move_joint(self.xml, joint, to, self.rules),
+            lambda r: (f"Moved joint {joint.block}.{joint.slot} by "
+                       f"({view._n(r.info['delta'][0])}, {view._n(r.info['delta'][1])})"
+                       + (f"; moved #{', #'.join(map(str, r.info['moved']))}"
+                          if r.info["moved"] else "")
+                       + (f"; stretched #{', #'.join(map(str, r.info['stretched']))}"
+                          if r.info["stretched"] else "") + "."))
+
+    def move_component(self, block, dx, dy):
+        return self._commit(
+            edit.move_component(self.xml, block, dx, dy, self.rules),
+            lambda r: f"Moved #{', #'.join(map(str, r.info['moved']))} by "
+                      f"({view._n(dx)}, {view._n(dy)}).")
+
+    # ------------------------------------------------------------ history
+
+    def undo(self):
+        if not self._undo:
+            return Result(False, "Nothing to undo.")
+        self._redo.append(self.current)
+        self.current = self._undo.pop()
+        return Result(True, "Undone.")
+
+    def redo(self):
+        if not self._redo:
+            return Result(False, "Nothing to redo.")
+        self._undo.append(self.current)
+        self.current = self._redo.pop()
+        return Result(True, "Redone.")
+
+    def save(self, name):
+        self.checkpoints[name] = self.current
+        return Result(True, f"Saved the current design as {name!r}.")
+
+    def load(self, name):
+        if name not in self.checkpoints:
+            known = ", ".join(repr(n) for n in self.checkpoints) or "none yet"
+            return Result(False, f"No checkpoint {name!r} (saved: {known}).")
+        self._set(self.versions[self.checkpoints[name]])
+        return Result(True, f"Loaded {name!r}.")
+
+    def list_checkpoints(self):
+        if not self.checkpoints:
+            return Result(True, "No checkpoints saved.")
+        lines = []
+        for name, v in self.checkpoints.items():
+            n = len(edit.describe(self.versions[v])["blocks"])
+            same = self.versions[v] == self.xml
+            lines.append(f"{name}: {n} blocks" + (" (same as the current design)" if same else ""))
+        return Result(True, "\n".join(lines))
+
+    # ------------------------------------------------------------ inspect
+
+    def describe(self):
+        return Result(True, view.summary(self.xml))
+
+    def view(self, region="build"):
+        r = render.render(self.xml, region)
+        return Result(True, r.notes() or "All joints labelled.", [r.png])
+
+    # ------------------------------------------------------------ runs
+
+    def run(self, timeout=3000):
+        r = runs.simulate(self.xml, timeout=timeout)
+        self.last_run = (r, self.current)
+        return Result(True, r.summary())
+
+    def _latest(self):
+        r, v = self.last_run
+        note = "" if v == self.current else " (the design has changed since this run)"
+        return r, note
+
+    def _no_run(self):
+        return Result(False, "No run yet: call run first.") if self.last_run is None else None
+
+    def run_frame(self, tick, region="level", motion=False):
+        if self._no_run():
+            return self._no_run()
+        r, note = self._latest()
+        return Result(True, f"Tick {tick}{note}.", [r.frame(tick, view=region, motion=motion).png])
+
+    def run_trails(self, start=0, end=None, region="level"):
+        if self._no_run():
+            return self._no_run()
+        r, note = self._latest()
+        return Result(True, f"Goal-piece trails{note}.",
+                      [r.trails(start, end, view=region).png])
+
+    def run_filmstrip(self, start=0, end=None, stride=None, region="level", motion=False):
+        if self._no_run():
+            return self._no_run()
+        r, note = self._latest()
+        pages = r.filmstrip(start, end, stride=stride, view=region, motion=motion)
+        return Result(True, f"{len(pages)} page(s){note}.", [p.png for p in pages])
+
+    # ------------------------------------------------------------ end
+
+    def submit(self):
+        r = runs.simulate(self.xml, timeout=self.submit_timeout)
+        self.final = r
+        self.done = True
+        verdict = (f"Solved at tick {r.solve_tick}." if r.solve_tick is not None
+                   else "Not solved.")
+        return Result(True, f"Submitted. {verdict} The session has ended.")
+
+    def log_jsonl(self):
+        return "\n".join(json.dumps(e) for e in self.log)

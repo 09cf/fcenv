@@ -133,6 +133,29 @@ world, since Box2D freezes it there and it never returns.
     arrow drawn is still a real trace.
 
 
+## Sessions and tools
+
+`session.Session(level_xml)` is one play session. It keeps every design
+version (undo/redo move between them), named saves, the latest run, and a
+log entry per tool call (`log_jsonl()`), for recreating the whole session.
+`submit()` evaluates the design and ends the session. `max_tool_calls` caps
+the number of calls.
+
+`tools.TOOLS` are the agent-facing tool definitions (name, description,
+JSON input schema). `tools.dispatch(session, name, args)` runs one and
+returns `(ok, content)`, with content as Claude tool-result blocks: text,
+plus PNG images for `view` and the run images.
+
+- Joints are strings (`"3.1"`, as labelled in images); points are `[x, y]`;
+  relative points are `{"from": "3.1", "offset": [dx, dy]}` or
+  `{"from": "3.1", "length": L, "angle": deg}`; in `add_rods`, `"@i.s"` is
+  end s of the batch's rod i.
+- Build tools return one line (what changed, with the new joint names), not
+  images; `describe` and `view` show the design.
+- Tools: add_rod, add_rods, add_wheel, delete, rewire, move_joint,
+  move_component, undo, redo, save, load, list_saves, describe, view, run,
+  run_frame, run_trails, run_filmstrip, help, submit.
+
 ## Levels and saving
 
 - `levels.fetch(link)` gets a level or design's XML from
@@ -144,6 +167,7 @@ world, since Box2D freezes it there and it never returns.
 
 ## Tests
 
-`python3 -m unittest tests.test_edit tests.test_render` (after `make -C
+`python3 -m unittest tests.test_edit tests.test_render tests.test_session`
+(after `make -C
 core`). Tests that use real designs need `core/tests/fetch_designs.py` run
 once; they're skipped otherwise.
