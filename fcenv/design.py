@@ -54,9 +54,26 @@ class Zone:
 class Design:
     level_blocks: tuple  # of BlockXml
     player_blocks: tuple  # of BlockXml, in XML order (= block index)
+    ids: tuple  # stable block ID of each player block (the XML id attribute)
     start: Zone
     end: Zone
     level_id: str = ""
+
+    def index_of(self, block_id):
+        return self.ids.index(block_id) if block_id in self.ids else None
+
+
+def _stable_ids(elements):
+    """Block IDs from the id attributes, or 0..n-1 if they aren't distinct
+    non-negative integers (the importer only needs <jointedTo> to match
+    them, so any distinct values work)."""
+    try:
+        ids = tuple(int((e.get("id") or "").strip()) for e in elements)
+    except ValueError:
+        ids = None
+    if ids is None or len(set(ids)) != len(ids) or any(i < 0 for i in ids):
+        return tuple(range(len(elements)))
+    return ids
 
 
 def _text(el, path):
@@ -94,9 +111,11 @@ def parse(xml):
         raise ValueError("no <level> element")
     lb = level.find("levelBlocks")
     pb = level.find("playerBlocks")
+    pb = list(pb) if pb is not None else []
     return Design(
         level_blocks=tuple(_block(e) for e in (lb if lb is not None else [])),
-        player_blocks=tuple(_block(e) for e in (pb if pb is not None else [])),
+        player_blocks=tuple(_block(e) for e in pb),
+        ids=_stable_ids(pb),
         start=_zone(level.find("start")),
         end=_zone(level.find("end")),
         level_id=_text(root, "levelId"),
@@ -126,10 +145,12 @@ def _zone_xml(tag, z):
 
 def serialize(design, jointed_to):
     """XML for `design`. jointed_to[i] lists the block indices player block i
-    is jointed to; ids are the block indices."""
+    is jointed to; they are written as the blocks' stable IDs."""
     level = "".join(_block_xml(b, None, ()) for b in design.level_blocks)
+    ids = design.ids
     player = "".join(
-        _block_xml(b, i, jointed_to[i]) for i, b in enumerate(design.player_blocks)
+        _block_xml(b, ids[i], [ids[j] for j in jointed_to[i]])
+        for i, b in enumerate(design.player_blocks)
     )
     return (
         '<?xml version="1.0"?><retrieveLevel>'
@@ -145,7 +166,9 @@ def serialize(design, jointed_to):
 
 @dataclass(frozen=True)
 class JointRef:
-    """A joint slot of a player block: (block index, slot). Slots follow
+    """A joint slot of a player block: (block, slot). In the public API
+    `block` is the block's stable ID; internally it is the block index.
+    Slots follow
     fcsim's canonical order: rod 0/1 (ends); wheel 0 centre, 1-4
     circumference, 5-8 inner (radius > 20 only); goal rect 0 centre, 1-4
     corners. A ref names the whole joint stack the slot belongs to."""

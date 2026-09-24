@@ -2,16 +2,22 @@
 
 Each edit:
 1. reads the joint graph by importing the XML with fccore;
-2. applies the operation to that graph and checks the editor's invariants
-   for the blocks it touches;
+2. validates its arguments, applies the operation to that graph and checks
+   the editor's invariants for the blocks it touches;
 3. writes new XML, keeping untouched blocks' values verbatim and choosing
    <jointedTo> lists that make the importer rebuild the intended graph;
 4. re-imports the result to confirm the joint graph is exactly the intended
    one, and runs fccore's legality check (overlap, build area), rejecting
    edits that add violations.
 
-No physics is stepped. Connections are always explicit: an endpoint is either
-a JointRef (connect to that joint stack) or a Point (a free joint there).
+No physics is stepped. Connections are always explicit: an endpoint is a
+JointRef (connect to that joint), or a point (a new free joint there), given
+directly as (x, y) or relative to a joint as Offset/Polar.
+
+Blocks are named by stable IDs (the XML id attribute): a new block gets the
+next unused ID, and IDs never change afterwards, even when block order does.
+Internally, blocks are handled by index (XML order), which is what fccore
+and the physics see; IDs are translated at the API boundary.
 """
 
 import itertools
@@ -31,6 +37,7 @@ from .design import (
     serialize,
 )
 
+ROD_TYPES = {fccore.WATER_ROD, fccore.SOLID_ROD}
 WHEEL_TYPES = {
     fccore.WHEEL, fccore.CW_WHEEL, fccore.CCW_WHEEL,
     fccore.GOAL_CIRCLE, fccore.CW_GOAL_CIRCLE, fccore.CCW_GOAL_CIRCLE,
@@ -74,7 +81,7 @@ class ErrorCode(Enum):
 class EditError:
     code: ErrorCode
     message: str
-    blocks: tuple = ()
+    blocks: tuple = ()  # block IDs involved
 
 
 @dataclass(frozen=True)
@@ -98,8 +105,42 @@ class Rules:
     min_rod_length: float = 1.0  # the game clamps rod length to >= 1
 
 
-def _err(code, message, blocks=()):
-    return Err(EditError(code, message, tuple(blocks)))
+@dataclass(frozen=True)
+class NewRef:
+    """In add_rods: joint `slot` (0 or 1) of the `index`-th rod of the same
+    batch, which must come earlier in the batch."""
+
+    index: int
+    slot: int
+
+
+@dataclass(frozen=True)
+class Offset:
+    """The point (dx, dy) away from `base` (a JointRef, a NewRef in a batch,
+    or an (x, y) point). A free point: it doesn't connect to `base`."""
+
+    base: object
+    dx: float
+    dy: float
+
+
+@dataclass(frozen=True)
+class Polar:
+    """The point `length` away from `base` at `angle` degrees: 0 is +x, and
+    since +y is down, 90 is straight down (angles turn clockwise on screen).
+    A free point: it doesn't connect to `base`."""
+
+    base: object
+    length: float
+    angle: float
+
+
+class _Fail(Exception):
+    """Internal: abort an edit with an EditError (messages already use IDs)."""
+
+    def __init__(self, code, message, blocks=()):
+        super().__init__(message)
+        self.error = EditError(code, message, tuple(blocks))
 
 
 # ------------------------------------------------------------------ state
@@ -109,69 +150,104 @@ def _err(code, message, blocks=()):
 class _State:
     design: object
     graph: object
-    orig_jointed: list  # per block: original <jointedTo> as block indices
+    orig_jointed: list  # per block index: original <jointedTo> as indices
+
+    def bid(self, index):
+        return self.design.ids[index]
+
+    def index(self, block_id):
+        i = self.design.index_of(block_id)
+        if i is None:
+            raise _Fail(ErrorCode.BAD_REFERENCE, f"no block {block_id}")
+        return i
 
 
 def _load(xml):
+    import xml.etree.ElementTree as ET
+
     design = parse(xml)
     graph = read_graph(xml)
     if len(design.player_blocks) != len(graph.slots):
         raise ValueError("design contains player blocks fccore doesn't import")
-    ids = {}
-    for i, el_id in enumerate(_ids(xml)):
-        ids.setdefault(el_id, i)
-    orig = [[ids[j] for j in jt if j in ids] for jt in _jointed_ids(xml)]
+    raw = xml.encode() if isinstance(xml, str) else xml
+    pb = ET.fromstring(raw).find("level/playerBlocks")
+    elements = list(pb) if pb is not None else []
+    by_id = {}
+    for i, e in enumerate(elements):
+        by_id.setdefault((e.get("id") or "").strip(), i)
+    orig = [[by_id[j.text.strip()] for j in e.findall("joints/jointedTo")
+             if j.text and j.text.strip() in by_id] for e in elements]
     return _State(design, graph, orig)
 
 
-def _player_elements(xml):
-    import xml.etree.ElementTree as ET
-
-    if isinstance(xml, str):
-        xml = xml.encode()
-    pb = ET.fromstring(xml).find("level/playerBlocks")
-    return list(pb) if pb is not None else []
-
-
-def _ids(xml):
-    return [(e.get("id") or "").strip() for e in _player_elements(xml)]
+def _run(fn):
+    """Turn internal failures into Err results."""
+    try:
+        return fn()
+    except _Fail as f:
+        return Err(f.error)
 
 
-def _jointed_ids(xml):
-    return [[(j.text or "").strip() for j in e.findall("joints/jointedTo")]
-            for e in _player_elements(xml)]
-
-
-def _check_ref(st, ref):
+def _ref(st, ref):
+    """Public JointRef (block ID) -> internal JointRef (block index)."""
     if not isinstance(ref, JointRef):
-        return None
-    if not (0 <= ref.block < len(st.graph.slots)) or not (
-            0 <= ref.slot < st.graph.slots[ref.block]):
-        return _err(ErrorCode.BAD_REFERENCE, f"no joint {ref}")
-    return None
+        raise _Fail(ErrorCode.BAD_REFERENCE, f"{ref!r} is not a joint")
+    i = st.index(ref.block)
+    if not 0 <= ref.slot < st.graph.slots[i]:
+        raise _Fail(ErrorCode.BAD_REFERENCE,
+                    f"block {ref.block} has no joint slot {ref.slot}")
+    return JointRef(i, ref.slot)
 
 
-def _position(st, ep):
+def _public(st, ref):
+    return JointRef(st.bid(ref.block), ref.slot)
+
+
+def _endpoint(st, graph, ep, batch=()):
+    """Resolve a public endpoint to an internal JointRef or an (x, y) point.
+    `batch` lists the internal indices of earlier rods of the same batch."""
+    if isinstance(ep, NewRef):
+        if not (0 <= ep.index < len(batch) and ep.slot in (0, 1)):
+            raise _Fail(ErrorCode.BAD_REFERENCE,
+                        f"{ep} must name an earlier rod of the same batch")
+        return JointRef(batch[ep.index], ep.slot)
     if isinstance(ep, JointRef):
-        s = st.graph.stack_of(ep)
+        return _ref(st, ep)
+    if isinstance(ep, (Offset, Polar)):
+        x, y = _point_of(graph, _endpoint(st, graph, ep.base, batch))
+        if isinstance(ep, Offset):
+            return (x + float(ep.dx), y + float(ep.dy))
+        a = math.radians(float(ep.angle))
+        return (x + float(ep.length) * math.cos(a), y + float(ep.length) * math.sin(a))
+    try:
+        x, y = ep
+        return (float(x), float(y))
+    except (TypeError, ValueError):
+        raise _Fail(ErrorCode.BAD_REFERENCE, f"{ep!r} is not a joint or a point")
+
+
+def _point_of(graph, ep):
+    if isinstance(ep, JointRef):
+        s = graph.stack_of(ep)
         return s.x, s.y
-    return float(ep[0]), float(ep[1])
+    return ep
 
 
 # ------------------------------------------------------------------ commit
 
 
-def _invariants(graph, changed):
+def _invariants(design, graph, changed):
     """Editor invariants, checked for joints involving changed blocks."""
+    ids = design.ids
     pairs = {}
     for s in graph.stacks:
         blocks = [m.block for m in s.members]
         if not changed.intersection(blocks):
             continue
         if len(set(blocks)) != len(blocks):
-            dup = [b for b in blocks if blocks.count(b) > 1]
-            return _err(ErrorCode.SAME_JOINT,
-                        f"block {dup[0]} would attach twice to one joint", dup[:1])
+            dup = next(b for b in blocks if blocks.count(b) > 1)
+            raise _Fail(ErrorCode.SAME_JOINT,
+                        f"block {ids[dup]} would attach twice to one joint", [ids[dup]])
         # Two wheels on one joint are reported as an overlap, which is what
         # they are, but the legality check can't see it: blocks sharing a
         # joint never collide, so fccore would happily simulate them. The
@@ -179,21 +255,20 @@ def _invariants(graph, changed):
         # onto a joint with a wheel, leaving it unattached and overlapping),
         # so check it here, and give the agent the same error it would get
         # for any other overlap.
-        wheels = [b for b in blocks if graph.types[b] in WHEEL_TYPES]
+        wheels = [ids[b] for b in blocks if graph.types[b] in WHEEL_TYPES]
         if len(wheels) > 1:
-            return _err(ErrorCode.OVERLAP,
+            raise _Fail(ErrorCode.OVERLAP,
                         f"a joint can hold at most one wheel: wheels {wheels} would "
                         "overlap", wheels)
         for pair in itertools.combinations(sorted(blocks), 2):
             if changed.intersection(pair):
                 pairs[pair] = pairs.get(pair, 0) + 1
-    for pair, n in pairs.items():
+    for (a, b), n in pairs.items():
         if n > 1:
-            return _err(ErrorCode.SHARED_TWICE,
-                        f"blocks {pair[0]} and {pair[1]} would share {n} joints "
+            raise _Fail(ErrorCode.SHARED_TWICE,
+                        f"blocks {ids[a]} and {ids[b]} would share {n} joints "
                         "(a block can't connect to another block twice, e.g. a rod "
-                        "across two joints of one wheel or goal rect)", pair)
-    return None
+                        "across two joints of one wheel or goal rect)", [ids[a], ids[b]])
 
 
 def _candidates(graph, n):
@@ -204,10 +279,8 @@ def _candidates(graph, n):
     for s in graph.stacks:
         chain = s.members
         for k, m in enumerate(chain):
-            if k == 0:
-                continue
-            earlier = [c.block for c in reversed(chain[:k])]
-            cands[m.block][m.slot] = earlier
+            if k:
+                cands[m.block][m.slot] = [c.block for c in reversed(chain[:k])]
     return cands
 
 
@@ -238,8 +311,7 @@ def _choose_jointed_to(design, graph, first_choice, max_imports=24):
     choice = [0] * n
     want = _predecessors(graph)
     for _ in range(max_imports):
-        jt = [options[b][choice[b]] for b in range(n)]
-        xml = serialize(design, jt)
+        xml = serialize(design, [options[b][choice[b]] for b in range(n)])
         got = read_graph(xml)
         if got.canonical() == graph.canonical():
             return xml, got
@@ -258,118 +330,150 @@ def _choose_jointed_to(design, graph, first_choice, max_imports=24):
 def _commit(st, design, graph, changed, old_index, first_choice, info):
     """Serialize, verify and legality-check the intended design/graph.
     old_index[i] is the pre-edit index of new block i (None if new)."""
-    bad = _invariants(graph, changed)
-    if bad:
-        return bad
+    _invariants(design, graph, changed)
     found = _choose_jointed_to(design, graph, first_choice)
     if found is None:
-        return _err(ErrorCode.UNREPRESENTABLE,
+        raise _Fail(ErrorCode.UNREPRESENTABLE,
                     "the XML format can't express this joint graph unambiguously "
                     "(two joints of connected blocks at the same point?)",
-                    sorted(changed))
+                    sorted(design.ids[i] for i in changed))
     xml, got = found
     for i, flags in enumerate(got.flags):
         if got.types[i] in GOAL_TYPES:
             continue
         before = 0 if old_index[i] is None or i in changed else st.graph.flags[old_index[i]]
         new = flags & ~before
+        bid = design.ids[i]
         if new & fccore.ILLEGAL_OVERLAP:
-            return _err(ErrorCode.OVERLAP, f"block {i} would overlap another block", [i])
+            raise _Fail(ErrorCode.OVERLAP, f"block {bid} would overlap another block", [bid])
         if new & fccore.ILLEGAL_OUTSIDE_BUILD_AREA:
-            return _err(ErrorCode.OUTSIDE_BUILD_AREA,
-                        f"block {i} would be outside the build area", [i])
+            raise _Fail(ErrorCode.OUTSIDE_BUILD_AREA,
+                        f"block {bid} would be outside the build area", [bid])
     return Ok(xml, info)
 
 
-def _identity_first_choice(st):
-    return [list(j) for j in st.orig_jointed]
+def _next_id(design):
+    return max(design.ids, default=-1) + 1
 
 
 # ------------------------------------------------------------------ edits
 
 
-def add_rod(xml, kind, a, b, rules=Rules()):
+def add_rod(xml, kind, a, b, rules=Rules(), count=1):
     """Add a rod from `a` to `b`. Each endpoint is a JointRef (connect to
-    that joint) or an (x, y) point (a new free joint). info: block, joints."""
-    st = _load(xml)
-    return _add_rod(st, RodKind(kind), a, b, rules, _identity_first_choice(st),
-                    list(range(len(st.graph.slots))), {})
+    that joint), or a free point: (x, y), Offset or Polar. With count > 1,
+    add that many identical rods, e.g. as weights: rods sharing a JointRef
+    end all attach to that joint, and each gets its own free joint at a
+    point. info: blocks, joints (per rod); with count 1 also block, joints."""
+    result = add_rods(xml, [(kind, a, b)] * count, rules)
+    if isinstance(result, Ok) and count == 1:
+        info = dict(result.info, block=result.info["blocks"][0],
+                    joints=result.info["joints"][0])
+        return Ok(result.xml, info)
+    return result
 
 
-def _add_rod(st, kind, a, b, rules, first_choice, old_index, info):
-    for ep in (a, b):
-        bad = _check_ref(st, ep)
-        if bad:
-            return bad
-    if (isinstance(a, JointRef) and isinstance(b, JointRef)
-            and st.graph.stack_of(a) is st.graph.stack_of(b)):
-        return _err(ErrorCode.SAME_JOINT, f"{a} and {b} are the same joint")
-    n = len(st.design.player_blocks)
-    if rules.max_design_blocks is not None and n >= rules.max_design_blocks:
-        return _err(ErrorCode.PIECE_LIMIT, f"design already has {n} blocks")
-    (ax, ay), (bx, by) = _position(st, a), _position(st, b)
-    dx, dy = bx - ax, by - ay
-    length = math.sqrt(dx * dx + dy * dy)
-    if length < rules.min_rod_length:
-        return _err(ErrorCode.ROD_TOO_SHORT,
-                    f"rod length {length:g} < {rules.min_rod_length:g}")
-    tag, height, type_id = _ROD[kind]
-    block = BlockXml(tag, {"rotation": fmt(math.atan2(dy, dx)),
-                           "x": fmt(ax + dx / 2), "y": fmt(ay + dy / 2),
-                           "width": fmt(length), "height": height}, False)
-    design = replace(st.design, player_blocks=st.design.player_blocks + (block,))
+def add_rods(xml, rods, rules=Rules()):
+    """Add several rods at once, atomically: all of them or none. `rods` is
+    a list of (kind, a, b). Endpoints are as for add_rod, and can also be
+    NewRef(i, slot): a joint of the i-th rod earlier in the batch (also as
+    the base of an Offset/Polar). info: blocks, joints (per rod)."""
+    def go():
+        return _add_rods(_load(xml), list(rods), rules)
+    return _run(go)
+
+
+def _add_rods(st, rods, rules, keep_ids=None):
+    n0 = len(st.design.player_blocks)
+    if rules.max_design_blocks is not None and n0 + len(rods) > rules.max_design_blocks:
+        raise _Fail(ErrorCode.PIECE_LIMIT,
+                    f"design has {n0} blocks; adding {len(rods)} would exceed "
+                    f"{rules.max_design_blocks}")
     graph = copy_graph(st.graph)
-    for slot, ep in enumerate((a, b)):
-        ref = JointRef(n, slot)
-        if isinstance(ep, JointRef):
-            graph.stack_of(ep).att.append(ref)
-        else:
-            graph.stacks.append(Stack(float(ep[0]), float(ep[1]), None, [ref]))
-    graph.slots.append(2)
-    graph.types.append(type_id)
-    graph.flags.append(0)
-    info = dict(info, block=n, joints=[JointRef(n, 0), JointRef(n, 1)])
-    return _commit(st, design, graph, {n}, old_index + [None], first_choice + [None], info)
+    blocks = list(st.design.player_blocks)
+    ids = list(st.design.ids)
+    batch = []
+    for i, (kind, a, b) in enumerate(rods):
+        where = f"rod {i} of the batch: " if len(rods) > 1 else ""
+        try:
+            a, b = (_endpoint(st, graph, ep, batch) for ep in (a, b))
+        except _Fail as f:
+            raise _Fail(f.error.code, where + f.error.message, f.error.blocks)
+        if (isinstance(a, JointRef) and isinstance(b, JointRef)
+                and graph.stack_of(a) is graph.stack_of(b)):
+            raise _Fail(ErrorCode.SAME_JOINT, f"{where}both ends are the same joint")
+        (ax, ay), (bx, by) = _point_of(graph, a), _point_of(graph, b)
+        dx, dy = bx - ax, by - ay
+        length = math.sqrt(dx * dx + dy * dy)
+        if length < rules.min_rod_length:
+            raise _Fail(ErrorCode.ROD_TOO_SHORT,
+                        f"{where}rod length {length:g} < {rules.min_rod_length:g}")
+        tag, height, type_id = _ROD[RodKind(kind)]
+        n = n0 + i
+        blocks.append(BlockXml(tag, {"rotation": fmt(math.atan2(dy, dx)),
+                                     "x": fmt(ax + dx / 2), "y": fmt(ay + dy / 2),
+                                     "width": fmt(length), "height": height}, False))
+        ids.append(keep_ids[i] if keep_ids else max(ids, default=-1) + 1)
+        for slot, ep in enumerate((a, b)):
+            ref = JointRef(n, slot)
+            if isinstance(ep, JointRef):
+                graph.stack_of(ep).att.append(ref)
+            else:
+                graph.stacks.append(Stack(ep[0], ep[1], None, [ref]))
+        graph.slots.append(2)
+        graph.types.append(type_id)
+        graph.flags.append(0)
+        batch.append(n)
+    design = replace(st.design, player_blocks=tuple(blocks), ids=tuple(ids))
+    new_ids = [ids[n] for n in batch]
+    info = {"blocks": new_ids, "joints": [[JointRef(b, 0), JointRef(b, 1)] for b in new_ids]}
+    return _commit(st, design, graph, set(batch),
+                   list(range(n0)) + [None] * len(rods),
+                   [list(j) for j in st.orig_jointed] + [None] * len(rods), info)
 
 
 def add_wheel(xml, spin, center, rules=Rules()):
-    """Add a (40mm) wheel centred on `center`: a JointRef or an (x, y) point.
-    info: block, joints."""
-    st = _load(xml)
-    bad = _check_ref(st, center)
-    if bad:
-        return bad
-    n = len(st.design.player_blocks)
-    if rules.max_design_blocks is not None and n >= rules.max_design_blocks:
-        return _err(ErrorCode.PIECE_LIMIT, f"design already has {n} blocks")
-    tag, type_id = _WHEEL[Spin(spin)]
-    x, y = _position(st, center)
-    block = BlockXml(tag, {"rotation": "0", "x": fmt(x), "y": fmt(y),
-                           "width": "40", "height": "40"}, False)
-    design = replace(st.design, player_blocks=st.design.player_blocks + (block,))
-    graph = copy_graph(st.graph)
-    ref = JointRef(n, 0)
-    if isinstance(center, JointRef):
-        graph.stack_of(center).att.append(ref)
-    else:
-        graph.stacks.append(Stack(x, y, None, [ref]))
-    # circumference joints, generated by the wheel (positions don't matter
-    # for the graph comparison)
-    for slot in range(1, 5):
-        graph.stacks.append(Stack(x, y, JointRef(n, slot), []))
-    graph.slots.append(5)
-    graph.types.append(type_id)
-    graph.flags.append(0)
-    info = {"block": n, "joints": [JointRef(n, s) for s in range(5)]}
-    old_index = list(range(n)) + [None]
-    return _commit(st, design, graph, {n}, old_index,
-                   _identity_first_choice(st) + [None], info)
+    """Add a (40mm) wheel centred on `center`: a JointRef, or a free point
+    ((x, y), Offset or Polar). info: block, joints."""
+    def go():
+        st = _load(xml)
+        n = len(st.design.player_blocks)
+        if rules.max_design_blocks is not None and n >= rules.max_design_blocks:
+            raise _Fail(ErrorCode.PIECE_LIMIT, f"design already has {n} blocks")
+        c = _endpoint(st, st.graph, center)
+        tag, type_id = _WHEEL[Spin(spin)]
+        x, y = _point_of(st.graph, c)
+        new_id = _next_id(st.design)
+        block = BlockXml(tag, {"rotation": "0", "x": fmt(x), "y": fmt(y),
+                               "width": "40", "height": "40"}, False)
+        design = replace(st.design, player_blocks=st.design.player_blocks + (block,),
+                         ids=st.design.ids + (new_id,))
+        graph = copy_graph(st.graph)
+        ref = JointRef(n, 0)
+        if isinstance(c, JointRef):
+            graph.stack_of(c).att.append(ref)
+        else:
+            graph.stacks.append(Stack(x, y, None, [ref]))
+        # circumference joints, generated by the wheel (their positions don't
+        # matter for the graph comparison)
+        for slot in range(1, 5):
+            graph.stacks.append(Stack(x, y, JointRef(n, slot), []))
+        graph.slots.append(5)
+        graph.types.append(type_id)
+        graph.flags.append(0)
+        info = {"block": new_id, "joints": [JointRef(new_id, s) for s in range(5)]}
+        return _commit(st, design, graph, {n}, list(range(n)) + [None],
+                       [list(j) for j in st.orig_jointed] + [None], info)
+    return _run(go)
 
 
 def _deleted(st, block):
-    """Design, graph, index map and first-choice lists without `block`."""
+    """_State without the block at index `block`, plus old indices."""
     remap = {i: (i if i < block else i - 1) for i in range(len(st.graph.slots)) if i != block}
-    mv = lambda r: JointRef(remap[r.block], r.slot)  # noqa: E731
+
+    def mv(r):
+        return JointRef(remap[r.block], r.slot)
+
     stacks = []
     for s in st.graph.stacks:
         att = [mv(m) for m in s.att if m.block != block]
@@ -380,99 +484,184 @@ def _deleted(st, block):
     graph.stacks = stacks
     for lst in (graph.slots, graph.types, graph.flags):
         del lst[block]
-    blocks = st.design.player_blocks
-    design = replace(st.design, player_blocks=blocks[:block] + blocks[block + 1:])
+    d = st.design
+    design = replace(d, player_blocks=d.player_blocks[:block] + d.player_blocks[block + 1:],
+                     ids=d.ids[:block] + d.ids[block + 1:])
     first = [[remap[j] for j in jt if j in remap]
              for i, jt in enumerate(st.orig_jointed) if i != block]
-    old_index = [i for i in range(len(blocks)) if i != block]
-    return design, graph, remap, first, old_index
-
-
-def _check_block(st, block):
-    if not (0 <= block < len(st.graph.slots)):
-        return _err(ErrorCode.BAD_REFERENCE, f"no block {block}")
-    return None
+    old_index = [i for i in range(len(d.player_blocks)) if i != block]
+    return _State(design, graph, first), old_index
 
 
 def delete(xml, block, rules=Rules()):
-    """Delete player block `block`. Later blocks shift down by one.
-    info: index_map {old index: new index}."""
-    st = _load(xml)
-    bad = _check_block(st, block)
-    if bad:
-        return bad
-    if st.graph.types[block] in GOAL_TYPES:
-        return _err(ErrorCode.CANNOT_DELETE_GOAL,
-                    f"block {block} is a goal piece; goal pieces can't be deleted",
-                    [block])
-    design, graph, remap, first, old_index = _deleted(st, block)
-    return _commit(st, design, graph, set(), old_index, first, {"index_map": remap})
+    """Delete the block with ID `block`. info: {}."""
+    def go():
+        st = _load(xml)
+        i = st.index(block)
+        if st.graph.types[i] in GOAL_TYPES:
+            raise _Fail(ErrorCode.CANNOT_DELETE_GOAL,
+                        f"block {block} is a goal piece; goal pieces can't be deleted",
+                        [block])
+        st2, old_index = _deleted(st, i)
+        return _commit(st, st2.design, st2.graph, set(), old_index, st2.orig_jointed, {})
+    return _run(go)
 
 
 def rewire(xml, block, slot, target, rules=Rules()):
     """Reconnect end `slot` (0 or 1) of rod `block` to `target` (a JointRef),
     or detach it (target None, leaving a free joint where it was). The rod
-    stretches to the new joint and moves to the end of the block order, as
-    if deleted and re-added. info: block, joints, index_map."""
-    st = _load(xml)
-    bad = _check_block(st, block) or _check_ref(st, target)
-    if bad:
-        return bad
-    if st.graph.types[block] not in (fccore.WATER_ROD, fccore.SOLID_ROD):
-        return _err(ErrorCode.WRONG_BLOCK_TYPE,
-                    f"block {block} is not a rod; rewire accepts rods", [block])
-    if slot not in (0, 1):
-        return _err(ErrorCode.BAD_REFERENCE, f"rods have slots 0 and 1, not {slot}")
-    if target is not None:
-        tstack = st.graph.stack_of(target)
-        if tstack is st.graph.stack_of(JointRef(block, slot)):
-            # already connected there: nothing to do
-            n = len(st.graph.slots)
-            return Ok(xml if isinstance(xml, str) else xml.decode(),
-                      {"block": block, "joints": [JointRef(block, 0), JointRef(block, 1)],
-                       "index_map": {i: i for i in range(n)}})
-        if tstack is st.graph.stack_of(JointRef(block, 1 - slot)):
-            return _err(ErrorCode.SAME_JOINT,
-                        f"{target} is the rod's other end", [block])
-    kind = RodKind.WATER if st.graph.types[block] == fccore.WATER_ROD else RodKind.WOOD
-    ends = []
-    for s in (0, 1):
-        stack = st.graph.stack_of(JointRef(block, s))
-        others = [m for m in stack.members if m.block != block]
-        if s == slot and target is not None:
-            ends.append(target)
-        elif s != slot and others:
-            ends.append(others[0])  # stay connected to the same joint
-        else:
-            ends.append((stack.x, stack.y))
-    design, graph, remap, first, old_index = _deleted(st, block)
-    mapped = [JointRef(remap[e.block], e.slot) if isinstance(e, JointRef) else e
-              for e in ends]
-    # continue from the post-deletion state; legality still compares against
-    # the pre-edit flags
-    st2 = _State(design, replace(graph, flags=[st.graph.flags[i] for i in old_index]),
-                 first)
-    return _add_rod(st2, kind, mapped[0], mapped[1], rules, first,
-                    list(range(len(old_index))), {"index_map": remap})
+    stretches to the new joint. It keeps its ID but moves to the end of the
+    block order, as if deleted and re-added (block order affects the
+    physics). info: block, joints."""
+    def go():
+        st = _load(xml)
+        i = st.index(block)
+        if st.graph.types[i] not in ROD_TYPES:
+            raise _Fail(ErrorCode.WRONG_BLOCK_TYPE,
+                        f"block {block} is not a rod; rewire accepts rods", [block])
+        if slot not in (0, 1):
+            raise _Fail(ErrorCode.BAD_REFERENCE, f"rods have slots 0 and 1, not {slot}")
+        t = _ref(st, target) if target is not None else None
+        info = {"block": block, "joints": [JointRef(block, 0), JointRef(block, 1)]}
+        if t is not None:
+            if st.graph.stack_of(t) is st.graph.stack_of(JointRef(i, slot)):
+                # already connected there: nothing to do
+                return Ok(xml if isinstance(xml, str) else xml.decode(), info)
+            if st.graph.stack_of(t) is st.graph.stack_of(JointRef(i, 1 - slot)):
+                raise _Fail(ErrorCode.SAME_JOINT,
+                            f"{target} is the rod's other end", [block])
+        ends = []  # public endpoints for the re-added rod
+        for s in (0, 1):
+            stack = st.graph.stack_of(JointRef(i, s))
+            others = [m for m in stack.members if m.block != i]
+            if s == slot and t is not None:
+                ends.append(target)
+            elif s != slot and others:
+                ends.append(_public(st, others[0]))  # stay on the same joint
+            else:
+                ends.append((stack.x, stack.y))
+        kind = RodKind.WATER if st.graph.types[i] == fccore.WATER_ROD else RodKind.WOOD
+        st2, old_index = _deleted(st, i)
+        # legality compares against the pre-edit flags
+        st2.graph = replace(st2.graph, flags=[st.graph.flags[k] for k in old_index])
+        result = _add_rods(st2, [(kind, ends[0], ends[1])], rules, keep_ids=[block])
+        return Ok(result.xml, info)
+    return _run(go)
+
+
+def move_joint(xml, joint, to, rules=Rules()):
+    """Move the joint stack `joint` (a JointRef) to `to`: an (x, y) point, or
+    an Offset/Polar (relative to where things are before the move).
+
+    As in fcsim's editor: any non-rod block with a joint in the moved set
+    (wheel, goal rect, goal circle) moves rigidly, taking all its joints
+    along, until nothing else joins. Rods stretch; a rod with both ends in
+    the moved set translates. Moving never connects or disconnects anything,
+    and block order is unchanged. Goal pieces can be moved.
+    info: moved (blocks translated), stretched (rods stretched), delta."""
+    def go():
+        st = _load(xml)
+        graph = st.graph
+        start = graph.stack_of(_ref(st, joint))
+        tx, ty = _point_of(graph, _endpoint(st, graph, to))
+        dx, dy = tx - start.x, ty - start.y
+
+        # closure: moved joint stacks and rigid (non-rod) blocks
+        moved, rigid, queue = [start], set(), [start]
+        while queue:
+            s = queue.pop()
+            for m in s.members:
+                if graph.types[m.block] in ROD_TYPES or m.block in rigid:
+                    continue
+                rigid.add(m.block)
+                for sl in range(graph.slots[m.block]):
+                    other = graph.stack_of(JointRef(m.block, sl))
+                    if all(other is not x for x in moved):
+                        moved.append(other)
+                        queue.append(other)
+        moved_ids = {id(s) for s in moved}
+
+        blocks = list(st.design.player_blocks)
+        stretched = []
+        for i, b in enumerate(blocks):
+            if i in rigid:
+                v = dict(b.values, x=fmt(b.num("x") + dx), y=fmt(b.num("y") + dy))
+                blocks[i] = replace(b, values=v)
+            elif graph.types[i] in ROD_TYPES:
+                ends = [graph.stack_of(JointRef(i, s)) for s in (0, 1)]
+                if not any(id(e) in moved_ids for e in ends):
+                    continue
+                (ax, ay), (bx, by) = ((e.x + dx, e.y + dy) if id(e) in moved_ids
+                                      else (e.x, e.y) for e in ends)
+                ex, ey = bx - ax, by - ay
+                length = math.sqrt(ex * ex + ey * ey)
+                if length < rules.min_rod_length:
+                    raise _Fail(ErrorCode.ROD_TOO_SHORT,
+                                f"rod {st.bid(i)} would be {length:g} long "
+                                f"(< {rules.min_rod_length:g})", [st.bid(i)])
+                v = dict(b.values, rotation=fmt(math.atan2(ey, ex)), x=fmt(ax + ex / 2),
+                         y=fmt(ay + ey / 2), width=fmt(length))
+                blocks[i] = replace(b, values=v)
+                stretched.append(i)
+
+        design = replace(st.design, player_blocks=tuple(blocks))
+        n = len(blocks)
+        info = {"moved": sorted(st.bid(i) for i in rigid),
+                "stretched": sorted(st.bid(i) for i in stretched), "delta": (dx, dy)}
+        # same joint graph, same block order: only positions change
+        return _commit(st, design, copy_graph(graph), rigid | set(stretched),
+                       list(range(n)), [list(j) for j in st.orig_jointed], info)
+    return _run(go)
 
 
 # ------------------------------------------------------------------ queries
 
 
-def describe(xml):
-    """Blocks and joints of a design, for inspection.
+def _components(graph):
+    """Connected components of player blocks (by index), via shared joints,
+    in order of their first block."""
+    parent = list(range(len(graph.slots)))
 
-    blocks: index, type, goal, x, y, angle, joints (JointRefs, one per slot)
-    joints: x, y, members (JointRefs; generator first, then chain order)
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    for s in graph.stacks:
+        blocks = [m.block for m in s.members]
+        for other in blocks[1:]:
+            parent[find(other)] = find(blocks[0])
+    groups = {}
+    for i in range(len(parent)):
+        groups.setdefault(find(i), []).append(i)
+    return sorted(groups.values(), key=lambda g: g[0])
+
+
+def describe(xml):
+    """The design, for inspection. Blocks and joints are named by ID.
+
+    blocks: id, type, goal, x, y, angle, width, height, joints (one JointRef per
+            slot), flags (fccore ILLEGAL_* bits)
+    joints: x, y, name (canonical JointRef: lowest block ID, then slot),
+            members (all JointRefs naming it: generator first, then chain)
+    components: lists of block IDs connected through shared joints
     """
     st = _load(xml)
+    ids = st.design.ids
     blocks = []
     for i, b in enumerate(st.design.player_blocks):
         blocks.append({
-            "index": i, "type": b.tag, "goal": b.goal,
+            "id": ids[i], "type": b.tag, "goal": b.goal,
             "x": b.num("x"), "y": b.num("y"), "angle": b.num("rotation"),
-            "width": b.num("width"),
-            "joints": [JointRef(i, s) for s in range(st.graph.slots[i])],
+            "width": b.num("width"), "height": b.num("height"),
+            "joints": [JointRef(ids[i], s) for s in range(st.graph.slots[i])],
+            "flags": st.graph.flags[i],
         })
-    joints = [{"x": s.x, "y": s.y, "members": s.members} for s in st.graph.stacks]
-    return {"blocks": blocks, "joints": joints, "flags": list(st.graph.flags)}
+    joints = []
+    for s in st.graph.stacks:
+        members = [_public(st, m) for m in s.members]
+        name = min(members, key=lambda r: (r.block, r.slot))
+        joints.append({"x": s.x, "y": s.y, "name": name, "members": members})
+    components = [[ids[i] for i in g] for g in _components(st.graph)]
+    return {"blocks": blocks, "joints": joints, "components": components}

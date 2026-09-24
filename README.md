@@ -15,25 +15,46 @@ taking XML plus an operation and returning `Ok(xml, info)` or
 `Err(EditError)`:
 
 ```python
-from fcenv import edit
+from fcenv import edit, view
 from fcenv.design import JointRef
+from fcenv.edit import Offset, Polar
 
-r = edit.add_rod(xml, "wood", JointRef(0, 1), (80, -20))   # goal rect corner -> free point
+r = edit.add_rod(xml, "wood", JointRef(0, 1), Offset(JointRef(0, 1), 60, 0))
 r = edit.add_wheel(r.xml, "cw", JointRef(r.info["block"], 1))
-edit.describe(r.xml)   # blocks, joints and their members
+r = edit.add_rod(r.xml, "water", JointRef(2, 1), Polar(JointRef(2, 1), 50, 90))
+print(view.summary(r.xml))   # pieces grouped by component, joints by name
+edit.describe(r.xml)         # the same as data
 ```
 
-Operations: `add_rod(xml, kind, a, b)`, `add_wheel(xml, spin, center)`,
-`delete(xml, block)`, `rewire(xml, rod, end, target)`.
+Operations:
+
+- `add_rod(xml, kind, a, b, count=1)`: `count` > 1 adds identical rods, e.g.
+  as weights (rods sharing a joint end all attach to it, and free ends get
+  a joint each, coincident but unconnected).
+- `add_rods(xml, [(kind, a, b), ...])`: a batch, all or nothing. Endpoints
+  can also be `NewRef(i, slot)`, a joint of the i-th rod earlier in the
+  batch.
+- `add_wheel(xml, spin, center)`.
+- `delete(xml, block)`.
+- `rewire(xml, rod, end, target)`.
+- `move_joint(xml, joint, to)`: as in fcsim's editor, non-rod blocks with a
+  joint in the moved set (wheels, goal pieces) move rigidly, and rods
+  stretch; nothing connects or disconnects.
 
 - **Connections are explicit.** An endpoint is a `JointRef` (connect to that
   joint) or an `(x, y)` point (a new free joint there). Nothing snaps.
-- **`JointRef(block, slot)`** names a joint stack through any of its
-  members. Slots use fcsim's canonical order: rods 0/1; wheels 0 centre, 1-4
-  circumference, 5-8 inner (radius > 20); goal rects 0 centre, 1-4 corners.
-- **Block indices are XML order.** `delete` shifts later blocks down, and
-  `rewire` moves the rod to the end, as re-adding it would (block order
-  affects the physics). `info["index_map"]` maps old indices to new.
+- **Relative points.** `Offset(base, dx, dy)` and `Polar(base, length,
+  angle)` give a point relative to a joint (or a `NewRef`, or a point).
+  Angles are degrees, 0 = +x; +y is down, so 90 points straight down. They
+  are free points: they don't connect to their base.
+- **Blocks have stable IDs**, stored as the XML id attribute. A new block
+  gets the next unused ID, and IDs never change or get reused.
+  `JointRef(block ID, slot)` names a joint stack through any of its members;
+  `view.summary` shows each joint under its lowest-ID member's name. Slots use
+  fcsim's canonical order: rods 0/1; wheels 0 centre, 1-4 circumference, 5-8
+  inner (radius > 20); goal rects 0 centre, 1-4 corners.
+- **Block order is XML order**, which affects the physics. `rewire` keeps the
+  rod's ID but moves it to the end of the order, as re-adding it would.
 - **States the original editor prohibits are rejected:**
   - a joint holding two wheels (reported as an overlap: jointed blocks never
     collide, so the overlap check can't see it, but that's what it is);
@@ -56,4 +77,3 @@ dataset designs re-serialize with identical physics.
 
 No physics is stepped during edits.
 
-Planned: `move_joint`; bulk placement (e.g. many rods as weights in one call).
