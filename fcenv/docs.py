@@ -91,7 +91,6 @@ Rules (a build call that breaks one is rejected and changes nothing):
   its thickness (a 2-unit tolerance);
 - pieces can't overlap each other or the level (water rods excepted, as for
   collisions), unless they share a joint;
-- a joint can hold at most one wheel;
 - two pieces can share at most one joint (so a rod can't join two joints of
   the same piece);
 - rods must be at least 1 long; at most 300 pieces in total, goal pieces
