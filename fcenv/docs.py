@@ -52,14 +52,12 @@ Pieces you can build:
   passes through all other pieces, including other water rods and goal
   pieces. Useful as a frame that doesn't get in the way.
 - Wheel: 40 across. "cw" wheels turn clockwise and "ccw" counter-clockwise,
-  at up to about 0.8 turns per second with a strong motor; "none" wheels spin
+  at up to about 0.8 turns per second; "none" wheels spin
   freely. A wheel's motor drives it relative to whatever its centre is
   joined to, so a powered wheel on its own does nothing.
-Every piece has the same density; heavier means bigger. Rods lose a little
-speed over time (damping); wheels don't.
 
-Goal pieces (red) belong to the level: rectangles and circles that must end
-up in the goal area. You can connect to their joints and move them, but not
+Goal pieces are red rectangles and circles that must end up in
+the goal area. You can connect to their joints and move them, but not
 delete them.
 
 Level pieces: green is fixed terrain. Orange and yellow pieces are movable
