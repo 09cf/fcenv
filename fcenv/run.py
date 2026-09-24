@@ -107,15 +107,102 @@ class Run:
         ys = np.concatenate([pts[:, 1], [gy - gh / 2, gy + gh / 2]])
         x0, x1, y0, y1 = xs.min(), xs.max(), ys.min(), ys.max()
         pad = max(0.08 * max(x1 - x0, y1 - y0), 40)  # 40 covers most piece sizes
-        wx0, wy0, wx1, wy1 = R._WORLD
-        return (max(x0 - pad, wx0), max(y0 - pad, wy0), min(x1 + pad, wx1), min(y1 + pad, wy1))
+        # never larger than the level view: pieces that fall away out of the
+        # level would otherwise blow the frame up
+        lx0, ly0, lx1, ly1 = self._frame
+        return (max(x0 - pad, lx0), max(y0 - pad, ly0), min(x1 + pad, lx1), min(y1 + pad, ly1))
 
-    def frame(self, tick, size=1024, view="level", block_labels=False):
-        """The level at `tick`."""
+    def _samples(self, i, scale, style):
+        """Points on block i to draw motion for, in its body frame."""
+        info = self._scene.blocks[i]
+        if info.type_id in (fccore.WATER_ROD, fccore.SOLID_ROD):
+            # ends, then about every `spacing` pixels
+            n = max(2, 1 + math.ceil(info.w * scale / style["spacing"]))
+            return [(-info.w / 2 + info.w * k / (n - 1), 0.0) for k in range(n)]
+        if info.shape == fccore.SHAPE_CIRCLE:
+            return [(0.0, 0.0)]  # wheels, balls: the centre; spin would clutter
+        corners = info.type_id == fccore.DYNAMIC_RECT or (
+            info.type_id == fccore.GOAL_RECT and style["rect_corners"])
+        if corners:  # so rotation shows, e.g. a tipping slab
+            hw, hh = info.w / 2, info.h / 2
+            return [(0.0, 0.0), (hw, hh), (-hw, hh), (hw, -hh), (-hw, -hh)]
+        return [(0.0, 0.0)]
+
+    # arrow styles: full-size frames, and small filmstrip cells (fewer,
+    # bolder arrows)
+    _ARROWS = {"frame": dict(spacing=30, width=2.0, head=7.0, min_px=4.0, max_px=70.0,
+                             near_px=18, rect_corners=True),
+               "cell": dict(spacing=120, width=3.0, head=9.0, min_px=5.0, max_px=50.0,
+                            near_px=32, rect_corners=False)}
+
+    def _motion(self, tick, horizon, style="frame"):
+        """Overlay drawing, for sample points on moving blocks, an arrow from
+        where each point is at `tick` to where that point of the body is at
+        tick + horizon (the actual recorded motion, not a projection).
+        Arrows too similar to one already kept (nearby start, same direction,
+        similar length) are dropped, in a random order seeded by the tick,
+        so every arrow drawn is still a real trace."""
+        t1 = min(tick + horizon, self.ticks)
+        s = self._scene
+        st = self._ARROWS[style]
+        movers = [i for i in range(len(s.blocks))
+                  if i < s.n_design or s.blocks[i].type_id in
+                  (fccore.DYNAMIC_RECT, fccore.DYNAMIC_CIRCLE)]
+
+        def overlay(cr, scale, pieces):
+            import random
+
+            arrows = []  # (ax, ay, dx, dy, length_px)
+            for i in movers:
+                (x0, y0, a0), (x1, y1, a1) = self.states[tick, i, :3], self.states[t1, i, :3]
+                c0, s0, c1, s1 = math.cos(a0), math.sin(a0), math.cos(a1), math.sin(a1)
+                for px, py in self._samples(i, scale, st):
+                    ax, ay = x0 + c0 * px - s0 * py, y0 + s0 * px + c0 * py
+                    bx, by = x1 + c1 * px - s1 * py, y1 + s1 * px + c1 * py
+                    length = math.hypot(bx - ax, by - ay) * scale
+                    if length >= st["min_px"]:
+                        arrows.append((ax, ay, bx - ax, by - ay, length))
+            random.Random(tick).shuffle(arrows)
+            kept = []
+            for a in arrows:
+                if not any(_similar(a, k, scale, st["near_px"]) for k in kept):
+                    kept.append(a)
+            head = st["head"] / scale
+            for ax, ay, dx, dy, length in kept:
+                capped = length > st["max_px"]
+                if capped:
+                    dx, dy = dx * st["max_px"] / length, dy * st["max_px"] / length
+                ex, ey = ax + dx, ay + dy
+                ang = math.atan2(dy, dx)
+                ux, uy = math.cos(ang), math.sin(ang)
+                for width, colour in ((st["width"] * 2, (1, 1, 1, 0.55)),
+                                      (st["width"], (0.85, 0.1, 0.55, 0.8))):
+                    cr.set_source_rgba(*colour)
+                    cr.set_line_width(width / scale)
+                    cr.new_path()
+                    cr.move_to(ax, ay)
+                    cr.line_to(ex, ey)
+                    for back in ((0, 1) if capped else (0,)):
+                        hx, hy = ex - ux * back * head, ey - uy * back * head
+                        for sign in (1, -1):
+                            h = ang + math.pi + sign * 0.45
+                            cr.move_to(hx, hy)
+                            cr.line_to(hx + math.cos(h) * head, hy + math.sin(h) * head)
+                    cr.stroke()
+
+        return overlay
+
+    def frame(self, tick, size=1024, view="level", block_labels=False, motion=False,
+              horizon=6):
+        """The level at `tick`. motion=True adds arrows showing how points on
+        each moving piece move over the next `horizon` ticks (capped arrows,
+        with a double head, moved further)."""
         tick = self._window(tick, tick)[0]
+        caption = f"tick {tick}" + (f", arrows: next {horizon} ticks" if motion else "")
         return R._render_scene(self._scene_at(tick), self._view(view, tick, tick), size,
                                labels="none", block_labels=block_labels,
-                               caption=f"tick {tick}")
+                               overlay=self._motion(tick, horizon) if motion else None,
+                               caption=caption)
 
     def trails(self, start=0, end=None, which="goal", size=1024, view="level"):
         """Paths of the goal pieces (which="goal") or all pieces ("all")
@@ -144,7 +231,7 @@ class Run:
                                caption=f"trails, ticks {start}-{end}")
 
     def filmstrip(self, start=0, end=None, stride=None, ticks=None, per_page=9, size=1024,
-                  view="level"):
+                  view="level", motion=False, horizon=6):
         """Frames at `ticks`, or every `stride` ticks from start to end
         (always including end), laid out `per_page` to an image in a square
         grid. With view="action", all pages share one frame: where the
@@ -166,6 +253,8 @@ class Run:
             # small cells: smaller joint rings, or they swamp small wheels
             imgs = [R._render_scene(self._scene_at(t), region, cell, grid="none",
                                     labels="none", caption=f"tick {t}",
+                                    overlay=(self._motion(t, horizon, "cell" if cell < 500
+                                                          else "frame") if motion else None),
                                     joint_px=1.5 if cell < 500 else 3.0).png
                     for t in chunk]
             surfs = [cairo.ImageSurface.create_from_png(io.BytesIO(p)) for p in imgs]
@@ -182,6 +271,16 @@ class Run:
             page.write_to_png(buf)
             pages.append(R.Render(buf.getvalue(), region, []))
         return pages
+
+
+def _similar(a, b, scale, near_px=18, max_turn=0.35, ratio=1.6):
+    """Two arrows (ax, ay, dx, dy, length_px) start close together, point
+    the same way and have similar lengths."""
+    if math.hypot(a[0] - b[0], a[1] - b[1]) * scale > near_px:
+        return False
+    turn = abs(math.atan2(a[3], a[2]) - math.atan2(b[3], b[2]))
+    turn = min(turn, 2 * math.pi - turn)
+    return turn <= max_turn and max(a[4], b[4]) <= ratio * min(a[4], b[4])
 
 
 def simulate(xml, timeout=3000, until_solved=True):

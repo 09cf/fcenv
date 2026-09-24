@@ -422,7 +422,8 @@ class TestRun(unittest.TestCase):
         self.assertIn("closest at tick", r.summary())
         self.assertNotIn("Joint breaks", r.summary())  # only mentioned if any
         for img in (r.frame(20), r.trails(), r.trails(start=10, end=30, view="action"),
-                    r.frame(20, view="action")):
+                    r.frame(20, view="action"), r.frame(20, motion=True, horizon=4),
+                    r.filmstrip(stride=15, motion=True)[0]):
             self.assertTrue(img.png.startswith(b"\x89PNG"))
         pages = r.filmstrip(stride=5, per_page=4)
         self.assertEqual(len(pages), 3)  # ticks 0, 5, ..., 45: 10 frames

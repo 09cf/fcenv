@@ -120,4 +120,17 @@ world, since Box2D freezes it there and it never returns.
     a list of pages of captioned frames.
 - Every joint of every piece is drawn at every tick, wheels' unused
   circumference joints included.
+- `motion=True` (on `frame` and `filmstrip`) adds arrows for how points on
+  each moving piece move over the next `horizon` ticks (default 6). This is
+  the actual recorded motion, not a projection from velocities.
+  - Samples: rod ends and about every 30px along rods; the centre and
+    corners of goal rects and dynamic level rects, so rotation shows; the
+    centre of wheels, goal circles and dynamic level circles.
+  - Motion under 4px isn't drawn, so still parts show nothing.
+  - Arrows are capped at 70px; capped ones get a double head.
+  - Arrows too similar to one already kept (starting within 18px, pointing
+    within 20°, similar length) are dropped in a random order, so every
+    arrow drawn is still a real trace.
+  - Filmstrip cells use fewer, bolder arrows: rod samples every ~120px,
+    goal rects at the centre only, and thinning within 32px.
 
