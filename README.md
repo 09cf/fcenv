@@ -214,9 +214,16 @@ python3 -m fcenv.harness level.xml --out x --print-prompt   # no API calls
   - the final design as `final.xml`, `final_save.xml`, `final_view.png`
     and `final_trails.png`.
 
+`python3 -m fcenv.video runs/try1` makes `runs/try1/episode.mp4` from the
+record alone (needs ffmpeg): each design change in the build view, rejected
+calls in red, the images the agent looked at, and its runs and the
+submission re-simulated and played in real time (sped up past `--max-run`
+seconds). The call and its result are captioned on top, and the agent's
+words for that turn at the bottom.
+
 ## Tests
 
 `python3 -m unittest tests.test_edit tests.test_render tests.test_session
-tests.test_harness` (after `make -C core`; the harness tests use a scripted
+tests.test_harness tests.test_video` (after `make -C core`; the harness tests use a scripted
 client, not the API). Tests that use real designs need `core/tests/fetch_designs.py` run
 once; they're skipped otherwise.
