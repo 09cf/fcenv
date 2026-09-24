@@ -7,14 +7,14 @@ Argument conventions:
 - a point is [x, y];
 - a relative point is {"from": "3:1", "offset": [dx, dy]} or
   {"from": "3:1", "length": 60, "angle": 45} (degrees; 0 = +x, 90 = down);
-- in add_rods, "@i:s" is end s of the batch's i-th rod.
+- in build, "@i:s" is joint s of the batch's i-th piece.
 """
 
 import base64
 import re
 
 from .design import JointRef
-from .edit import NewRef, Offset, Polar
+from .edit import NewRef, Offset, Polar, Rod, Wheel
 
 _JOINT = {"type": "string", "description": 'A joint, "block:slot", e.g. "3:1".'}
 _POINT_OR_JOINT = {
@@ -45,12 +45,16 @@ TOOLS = [
     _tool("add_rod", "Add a rod (or `count` identical rods) from a to b.",
           {"kind": {"enum": ["wood", "water"]}, "a": _POINT_OR_JOINT, "b": _POINT_OR_JOINT,
            "count": {"type": "integer", "minimum": 1}}, ["kind", "a", "b"]),
-    _tool("add_rods", 'Add several rods at once (all or none). Ends can also be "@i:s": '
-          "end s of the batch's rod i.",
-          {"rods": {"type": "array", "items": {
-              "type": "object", "properties": {"kind": {"enum": ["wood", "water"]},
-                                               "a": _POINT_OR_JOINT, "b": _POINT_OR_JOINT},
-              "required": ["kind", "a", "b"]}}}, ["rods"]),
+    _tool("build", "Add several rods and wheels in one call (all or none). Joints can "
+          'also be "@i:s": joint s of the i-th piece in this call (rod ends 0-1; wheel '
+          "centre 0, rim 1-4).",
+          {"pieces": {"type": "array", "items": {"anyOf": [
+              {"type": "object", "properties": {"rod": {"enum": ["wood", "water"]},
+                                                "a": _POINT_OR_JOINT, "b": _POINT_OR_JOINT},
+               "required": ["rod", "a", "b"]},
+              {"type": "object", "properties": {"wheel": {"enum": ["none", "cw", "ccw"]},
+                                                "center": _POINT_OR_JOINT},
+               "required": ["wheel", "center"]}]}}}, ["pieces"]),
     _tool("add_wheel", "Add a wheel centred on a joint or a point.",
           {"spin": {"enum": ["none", "cw", "ccw"]}, "center": _POINT_OR_JOINT},
           ["spin", "center"]),
@@ -122,6 +126,14 @@ def _endpoint(v):
     return (float(x), float(y))
 
 
+def _piece(p):
+    if "rod" in p:
+        return Rod(p["rod"], _endpoint(p["a"]), _endpoint(p["b"]))
+    if "wheel" in p:
+        return Wheel(p["wheel"], _endpoint(p["center"]))
+    raise ValueError(f'{p!r} is neither a rod ({{"rod": ...}}) nor a wheel ({{"wheel": ...}})')
+
+
 def _region(v, default):
     if v is None:
         return default
@@ -134,11 +146,10 @@ def dispatch(session, name, args, **meta):
     args = dict(args or {})
     s = session
     fns = {
-        "add_rod": lambda: s.add_rods([(args["kind"], _endpoint(args["a"]),
+        "add_rod": lambda: s.build([Rod(args["kind"], _endpoint(args["a"]),
                                         _endpoint(args["b"]))] * int(args.get("count", 1))),
-        "add_rods": lambda: s.add_rods([(r["kind"], _endpoint(r["a"]), _endpoint(r["b"]))
-                                        for r in args["rods"]]),
-        "add_wheel": lambda: s.add_wheel(args["spin"], _endpoint(args["center"])),
+        "build": lambda: s.build([_piece(p) for p in args["pieces"]]),
+        "add_wheel": lambda: s.build([Wheel(args["spin"], _endpoint(args["center"]))]),
         "delete": lambda: s.delete(int(args["block"])),
         "rewire": lambda: s.rewire(int(args["rod"]), int(args["end"]),
                                    None if args.get("to") is None else _joint(args["to"])),

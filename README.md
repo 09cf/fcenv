@@ -30,9 +30,11 @@ Operations:
 - `add_rod(xml, kind, a, b, count=1)`: `count` > 1 adds identical rods, e.g.
   as weights (rods sharing a joint end all attach to it, and free ends get
   a joint each, coincident but unconnected).
-- `add_rods(xml, [(kind, a, b), ...])`: a batch, all or nothing. Endpoints
-  can also be `NewRef(i, slot)`, a joint of the i-th rod earlier in the
-  batch.
+- `build(xml, [Rod(kind, a, b), Wheel(spin, center), ...])`: a batch of
+  rods and wheels, all or nothing. Endpoints and centres can also be
+  `NewRef(i, slot)`, a joint of the i-th piece earlier in the batch (a
+  rod's 0-1, a wheel's 0-4, rim joints included). `add_rods(xml, [(kind, a,
+  b), ...])` is the rods-only form.
 - `add_wheel(xml, spin, center)`.
 - `delete(xml, block)`.
 - `rewire(xml, rod, end, target)`.
@@ -148,11 +150,14 @@ plus PNG images for `view` and the run images.
 
 - Joints are strings (`"3:1"`, as labelled in images); points are `[x, y]`;
   relative points are `{"from": "3:1", "offset": [dx, dy]}` or
-  `{"from": "3:1", "length": L, "angle": deg}`; in `add_rods`, `"@i:s"` is
-  end s of the batch's rod i.
+  `{"from": "3:1", "length": L, "angle": deg}`; in `build`, `"@i:s"` is
+  joint s of the batch's piece i.
+- `build` takes a list of pieces, `{"rod": "wood", "a": ..., "b": ...}` or
+  `{"wheel": "cw", "center": ...}`, so a whole machine can go in with one
+  call.
 - Build tools return one line (what changed, with the new joint names), not
   images; `describe` and `view` show the design.
-- Tools: add_rod, add_rods, add_wheel, delete, rewire, move_joint,
+- Tools: add_rod, add_wheel, build, delete, rewire, move_joint,
   move_component, undo, redo, save, load, list_saves, describe, view, run,
   run_frame, run_trails, run_filmstrip, help, submit.
 

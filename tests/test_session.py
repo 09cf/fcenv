@@ -36,12 +36,28 @@ class TestTools(unittest.TestCase):
                            b={"from": "0:1", "offset": [60, 0]})
         self.assertTrue(ok)
         self.assertEqual(text, "Added wood rod #1 (1:0 = 0:1, 1:1 at (80, -20)).")
-        ok, text, _ = call(s, "add_rods", rods=[
-            {"kind": "water", "a": [60, 60], "b": [120, 60]},
-            {"kind": "water", "a": "@0:1", "b": {"from": "@0:1", "length": 40, "angle": 90}}])
+        ok, text, _ = call(s, "build", pieces=[
+            {"rod": "water", "a": [60, 60], "b": [120, 60]},
+            {"rod": "water", "a": "@0:1", "b": {"from": "@0:1", "length": 40, "angle": 90}}])
         self.assertIn("water rod #3 (3:0 = 2:1, 3:1 at (120, 100))", text)
         ok, text, _ = call(s, "add_wheel", spin="cw", center="1:1")
         self.assertEqual(text, "Added cw wheel #4 (centre 4:0 = 1:1).")
+
+    def test_build_a_car_in_one_call(self):
+        s = Session(LEVEL)
+        ok, text, _ = call(s, "build", pieces=[
+            {"rod": "wood", "a": [-60, 100], "b": [60, 100]},
+            {"wheel": "cw", "center": "@0:0"},
+            {"wheel": "none", "center": "@0:1"},
+            {"rod": "water", "a": "@2:4", "b": "0:3"}])  # the rim joint above wheel #3
+        self.assertTrue(ok, text)
+        self.assertEqual(text, "Added wood rod #1 (1:0 at (-60, 100), 1:1 at (60, 100)); "
+                               "cw wheel #2 (centre 2:0 = 1:0); wheel #3 (centre 3:0 = 1:1); "
+                               "water rod #4 (4:0 = 3:4, 4:1 = 0:3).")
+        ok, text, _ = call(s, "build", pieces=[{"rod": "wood", "a": [0, 0]}])
+        self.assertIn("Bad arguments", text)
+        ok, text, _ = call(s, "build", pieces=[{"spring": "x"}])
+        self.assertIn("neither a rod", text)
 
     def test_joints_given_as_numbers(self):
         s = Session(LEVEL)

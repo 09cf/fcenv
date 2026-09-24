@@ -107,8 +107,8 @@ class Rules:
 
 @dataclass(frozen=True)
 class NewRef:
-    """In add_rods: joint `slot` (0 or 1) of the `index`-th rod of the same
-    batch, which must come earlier in the batch."""
+    """In build: joint `slot` of the `index`-th piece of the same batch,
+    which must come earlier in the batch."""
 
     index: int
     slot: int
@@ -205,11 +205,12 @@ def _public(st, ref):
 
 def _endpoint(st, graph, ep, batch=()):
     """Resolve a public endpoint to an internal JointRef or an (x, y) point.
-    `batch` lists the internal indices of earlier rods of the same batch."""
+    `batch` lists the internal indices of earlier pieces of the same batch."""
     if isinstance(ep, NewRef):
-        if not (0 <= ep.index < len(batch) and ep.slot in (0, 1)):
+        if not (0 <= ep.index < len(batch) and 0 <= ep.slot < graph.slots[batch[ep.index]]):
             raise _Fail(ErrorCode.BAD_REFERENCE,
-                        f"{ep} must name an earlier rod of the same batch")
+                        f"@{ep.index}:{ep.slot} must name a joint of an earlier piece "
+                        "of the same batch")
         return JointRef(batch[ep.index], ep.slot)
     if isinstance(ep, JointRef):
         return _ref(st, ep)
@@ -373,98 +374,111 @@ def add_rod(xml, kind, a, b, rules=Rules(), count=1):
     return result
 
 
+@dataclass(frozen=True)
+class Rod:
+    """A rod piece for build(): kind "wood" or "water", ends a and b."""
+
+    kind: str
+    a: object
+    b: object
+
+
+@dataclass(frozen=True)
+class Wheel:
+    """A (40mm) wheel piece for build(): spin "none", "cw" or "ccw"."""
+
+    spin: str
+    center: object
+
+
+# a new wheel's rim joints (slots 1-4), relative to its centre
+_RIM = ((20, 0), (0, 20), (-20, 0), (0, -20))
+
+
+def build(xml, pieces, rules=Rules()):
+    """Add several pieces (Rod and Wheel) at once, atomically: all of them or
+    none. Endpoints and centres are a JointRef, a point, an Offset/Polar, or
+    NewRef(i, slot): joint `slot` of the i-th piece earlier in the batch (a
+    rod's 0-1, a wheel's 0-4). info: blocks, joints (per piece)."""
+    return _run(lambda: _build(_load(xml), list(pieces), rules))
+
+
 def add_rods(xml, rods, rules=Rules()):
-    """Add several rods at once, atomically: all of them or none. `rods` is
-    a list of (kind, a, b). Endpoints are as for add_rod, and can also be
-    NewRef(i, slot): a joint of the i-th rod earlier in the batch (also as
-    the base of an Offset/Polar). info: blocks, joints (per rod)."""
-    def go():
-        return _add_rods(_load(xml), list(rods), rules)
-    return _run(go)
+    """build() with rods only; `rods` is a list of (kind, a, b)."""
+    return build(xml, [Rod(*r) for r in rods], rules)
 
 
-def _add_rods(st, rods, rules, keep_ids=None):
+def add_wheel(xml, spin, center, rules=Rules()):
+    """Add a wheel centred on `center`. info: block, joints."""
+    r = build(xml, [Wheel(spin, center)], rules)
+    if isinstance(r, Ok):
+        return Ok(r.xml, {"block": r.info["blocks"][0], "joints": r.info["joints"][0]})
+    return r
+
+
+def _build(st, pieces, rules, keep_ids=None):
     n0 = len(st.design.player_blocks)
-    if rules.max_design_blocks is not None and n0 + len(rods) > rules.max_design_blocks:
+    if rules.max_design_blocks is not None and n0 + len(pieces) > rules.max_design_blocks:
         raise _Fail(ErrorCode.PIECE_LIMIT,
-                    f"design has {n0} blocks; adding {len(rods)} would exceed "
+                    f"design has {n0} blocks; adding {len(pieces)} would exceed "
                     f"{rules.max_design_blocks}")
     graph = copy_graph(st.graph)
     blocks = list(st.design.player_blocks)
     ids = list(st.design.ids)
     batch = []
-    for i, (kind, a, b) in enumerate(rods):
-        where = f"rod {i} of the batch: " if len(rods) > 1 else ""
+    for i, piece in enumerate(pieces):
+        where = f"piece {i} of the batch: " if len(pieces) > 1 else ""
+        n = n0 + i
         try:
-            a, b = (_endpoint(st, graph, ep, batch) for ep in (a, b))
+            ends = [_endpoint(st, graph, ep, batch)
+                    for ep in ((piece.a, piece.b) if isinstance(piece, Rod) else (piece.center,))]
         except _Fail as f:
             raise _Fail(f.error.code, where + f.error.message, f.error.blocks)
-        if (isinstance(a, JointRef) and isinstance(b, JointRef)
-                and graph.stack_of(a) is graph.stack_of(b)):
-            raise _Fail(ErrorCode.SAME_JOINT, f"{where}both ends are the same joint")
-        (ax, ay), (bx, by) = _point_of(graph, a), _point_of(graph, b)
-        dx, dy = bx - ax, by - ay
-        length = math.sqrt(dx * dx + dy * dy)
-        if length < rules.min_rod_length:
-            raise _Fail(ErrorCode.ROD_TOO_SHORT,
-                        f"{where}rod length {length:g} < {rules.min_rod_length:g}")
-        tag, height, type_id = _ROD[RodKind(kind)]
-        n = n0 + i
-        blocks.append(BlockXml(tag, {"rotation": fmt(math.atan2(dy, dx)),
-                                     "x": fmt(ax + dx / 2), "y": fmt(ay + dy / 2),
-                                     "width": fmt(length), "height": height}, False))
-        ids.append(keep_ids[i] if keep_ids else max(ids, default=-1) + 1)
-        for slot, ep in enumerate((a, b)):
+        if isinstance(piece, Rod):
+            a, b = ends
+            if (isinstance(a, JointRef) and isinstance(b, JointRef)
+                    and graph.stack_of(a) is graph.stack_of(b)):
+                raise _Fail(ErrorCode.SAME_JOINT, f"{where}both ends are the same joint")
+            (ax, ay), (bx, by) = _point_of(graph, a), _point_of(graph, b)
+            dx, dy = bx - ax, by - ay
+            length = math.sqrt(dx * dx + dy * dy)
+            if length < rules.min_rod_length:
+                raise _Fail(ErrorCode.ROD_TOO_SHORT,
+                            f"{where}rod length {length:g} < {rules.min_rod_length:g}")
+            tag, height, type_id = _ROD[RodKind(piece.kind)]
+            blocks.append(BlockXml(tag, {"rotation": fmt(math.atan2(dy, dx)),
+                                         "x": fmt(ax + dx / 2), "y": fmt(ay + dy / 2),
+                                         "width": fmt(length), "height": height}, False))
+            n_slots = 2
+        else:
+            (c,) = ends
+            tag, type_id = _WHEEL[Spin(piece.spin)]
+            x, y = _point_of(graph, c)
+            blocks.append(BlockXml(tag, {"rotation": "0", "x": fmt(x), "y": fmt(y),
+                                         "width": "40", "height": "40"}, False))
+            # rim joints, generated by the wheel
+            for slot, (ox, oy) in enumerate(_RIM, 1):
+                graph.stacks.append(Stack(x + ox, y + oy, JointRef(n, slot), []))
+            n_slots = 5
+        for slot, ep in enumerate(ends):
             ref = JointRef(n, slot)
             if isinstance(ep, JointRef):
                 graph.stack_of(ep).att.append(ref)
             else:
                 graph.stacks.append(Stack(ep[0], ep[1], None, [ref]))
-        graph.slots.append(2)
+        ids.append(keep_ids[i] if keep_ids else max(ids, default=-1) + 1)
+        graph.slots.append(n_slots)
         graph.types.append(type_id)
         graph.flags.append(0)
         batch.append(n)
     design = replace(st.design, player_blocks=tuple(blocks), ids=tuple(ids))
     new_ids = [ids[n] for n in batch]
-    info = {"blocks": new_ids, "joints": [[JointRef(b, 0), JointRef(b, 1)] for b in new_ids]}
+    info = {"blocks": new_ids,
+            "joints": [[JointRef(b, s) for s in range(graph.slots[n])]
+                       for b, n in zip(new_ids, batch)]}
     return _commit(st, design, graph, set(batch),
-                   list(range(n0)) + [None] * len(rods),
-                   [list(j) for j in st.orig_jointed] + [None] * len(rods), info)
-
-
-def add_wheel(xml, spin, center, rules=Rules()):
-    """Add a (40mm) wheel centred on `center`: a JointRef, or a free point
-    ((x, y), Offset or Polar). info: block, joints."""
-    def go():
-        st = _load(xml)
-        n = len(st.design.player_blocks)
-        if rules.max_design_blocks is not None and n >= rules.max_design_blocks:
-            raise _Fail(ErrorCode.PIECE_LIMIT, f"design already has {n} blocks")
-        c = _endpoint(st, st.graph, center)
-        tag, type_id = _WHEEL[Spin(spin)]
-        x, y = _point_of(st.graph, c)
-        new_id = _next_id(st.design)
-        block = BlockXml(tag, {"rotation": "0", "x": fmt(x), "y": fmt(y),
-                               "width": "40", "height": "40"}, False)
-        design = replace(st.design, player_blocks=st.design.player_blocks + (block,),
-                         ids=st.design.ids + (new_id,))
-        graph = copy_graph(st.graph)
-        ref = JointRef(n, 0)
-        if isinstance(c, JointRef):
-            graph.stack_of(c).att.append(ref)
-        else:
-            graph.stacks.append(Stack(x, y, None, [ref]))
-        # circumference joints, generated by the wheel (their positions don't
-        # matter for the graph comparison)
-        for slot in range(1, 5):
-            graph.stacks.append(Stack(x, y, JointRef(n, slot), []))
-        graph.slots.append(5)
-        graph.types.append(type_id)
-        graph.flags.append(0)
-        info = {"block": new_id, "joints": [JointRef(new_id, s) for s in range(5)]}
-        return _commit(st, design, graph, {n}, list(range(n)) + [None],
-                       [list(j) for j in st.orig_jointed] + [None], info)
-    return _run(go)
+                   list(range(n0)) + [None] * len(pieces),
+                   [list(j) for j in st.orig_jointed] + [None] * len(pieces), info)
 
 
 def _deleted(st, block):
@@ -544,7 +558,7 @@ def rewire(xml, block, slot, target, rules=Rules()):
         st2, old_index = _deleted(st, i)
         # legality compares against the pre-edit flags
         st2.graph = replace(st2.graph, flags=[st.graph.flags[k] for k in old_index])
-        result = _add_rods(st2, [(kind, ends[0], ends[1])], rules, keep_ids=[block])
+        result = _build(st2, [Rod(kind, ends[0], ends[1])], rules, keep_ids=[block])
         return Ok(result.xml, info)
     return _run(go)
 

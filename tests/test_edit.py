@@ -255,6 +255,48 @@ class TestBatch(unittest.TestCase):
                                   ("wood", JointRef(1, 1), (120, 0))]),
             ErrorCode.BAD_REFERENCE)  # new rods are named with NewRef
 
+    def test_build_rods_and_wheels(self):
+        from fcenv.edit import Rod, Wheel
+
+        r = ok(edit.build(LEVEL, [
+            Rod("wood", (-60, 100), (60, 100)),
+            Wheel("cw", NewRef(0, 0)),
+            Wheel("ccw", NewRef(0, 1)),
+            Rod("water", NewRef(1, 1), NewRef(2, 3)),  # rim to rim: (-40, 100) to (40, 100)
+        ]))
+        self.assertEqual(r.info["blocks"], [1, 2, 3, 4])
+        self.assertEqual([len(j) for j in r.info["joints"]], [2, 5, 5, 2])
+        self.assertEqual(stacks(r.xml), {
+            frozenset({JointRef(1, 0), JointRef(2, 0)}),
+            frozenset({JointRef(1, 1), JointRef(3, 0)}),
+            frozenset({JointRef(2, 1), JointRef(4, 0)}),
+            frozenset({JointRef(3, 3), JointRef(4, 1)}),
+        })
+        rod = edit.describe(r.xml)["blocks"][4]
+        self.assertEqual((rod["x"], rod["y"], rod["width"]), (0.0, 100.0, 80.0))
+        # the same as building them one call at a time
+        x = ok(edit.add_rod(LEVEL, "wood", (-60, 100), (60, 100))).xml
+        x = ok(edit.add_wheel(x, "cw", JointRef(1, 0))).xml
+        x = ok(edit.add_wheel(x, "ccw", JointRef(1, 1))).xml
+        x = ok(edit.add_rod(x, "water", JointRef(2, 1), JointRef(3, 3))).xml
+        self.assertEqual(x, r.xml)
+
+    def test_build_rejections(self):
+        from fcenv.edit import Rod, Wheel
+
+        # two wheels on one joint, an overlap, a rim slot a rod doesn't have
+        err(edit.build(LEVEL, [Rod("wood", (-60, 100), (60, 100)), Wheel("cw", NewRef(0, 0)),
+                               Wheel("cw", NewRef(0, 0))]), ErrorCode.OVERLAP)
+        err(edit.build(LEVEL, [Wheel("cw", (100, 100)), Wheel("cw", (110, 100))]),
+            ErrorCode.OVERLAP)
+        e = err(edit.build(LEVEL, [Rod("wood", (-60, 100), (60, 100)),
+                                   Wheel("cw", NewRef(0, 3))]), ErrorCode.BAD_REFERENCE)
+        self.assertIn("piece 1 of the batch: @0:3", e.message)
+        err(edit.build(LEVEL, [Wheel("cw", (100, 100)), Rod("wood", NewRef(0, 5), (0, 60))]),
+            ErrorCode.BAD_REFERENCE)
+        err(edit.build(LEVEL, [Wheel("cw", (100, 100)), Wheel("cw", (-100, 100))],
+                       Rules(max_design_blocks=2)), ErrorCode.PIECE_LIMIT)
+
     def test_batch_piece_limit(self):
         err(edit.add_rod(LEVEL, "water", (60, 60), (120, 60), Rules(max_design_blocks=3),
                          count=3), ErrorCode.PIECE_LIMIT)

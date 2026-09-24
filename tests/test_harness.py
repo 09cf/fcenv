@@ -106,8 +106,8 @@ class TestHarness(unittest.TestCase):
         calls on a fresh session gives the same versions, and each entry's
         version_after is the design after that call."""
         r, out, _ = play([
-            [("add_rods", {"rods": [{"kind": "wood", "a": "0:1", "b": [60, -20]},
-                                    {"kind": "water", "a": "@0:1", "b": [60, 40]}]})],
+            [("build", {"pieces": [{"rod": "wood", "a": "0:1", "b": [60, -20]},
+                                   {"rod": "water", "a": "@0:1", "b": [60, 40]}]})],
             [("add_wheel", {"spin": "cw", "center": "1:1"}), ("save", {"name": "a"})],
             [("move_joint", {"joint": "2:1", "to": [80, 40]}), ("undo", {}), ("redo", {})],
             [("delete", {"block": 3}), ("load", {"name": "a"}), ("run", {"timeout": 20})],

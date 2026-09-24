@@ -29,7 +29,7 @@ from . import run as runs
 
 _BG = (0.13, 0.14, 0.16)
 _TOP, _BOTTOM = 64, 58
-_CHANGED = {"add_rod", "add_rods", "add_wheel", "delete", "rewire", "move_joint",
+_CHANGED = {"add_rod", "add_rods", "build", "add_wheel", "delete", "rewire", "move_joint",
             "move_component", "undo", "redo", "load"}
 
 

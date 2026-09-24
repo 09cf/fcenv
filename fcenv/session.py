@@ -98,19 +98,18 @@ class Session:
 
     # ------------------------------------------------------------ build
 
-    def add_rods(self, rods):
+    def build(self, pieces):
+        """Add edit.Rod and edit.Wheel pieces, all or none."""
         def text(r):
-            kinds = [k for k, _, _ in rods]
-            parts = [f"{k} rod #{b} ({self._joints_text(js)})"
-                     for k, b, js in zip(kinds, r.info["blocks"], r.info["joints"])]
+            parts = []
+            for p, b, js in zip(pieces, r.info["blocks"], r.info["joints"]):
+                if isinstance(p, edit.Rod):
+                    parts.append(f"{p.kind} rod #{b} ({self._joints_text(js)})")
+                else:
+                    kind = "wheel" if p.spin == "none" else f"{p.spin} wheel"
+                    parts.append(f"{kind} #{b} (centre {self._joints_text(js[:1])})")
             return "Added " + "; ".join(parts) + "."
-        return self._commit(edit.add_rods(self.xml, rods, self.rules), text)
-
-    def add_wheel(self, spin, center):
-        return self._commit(
-            edit.add_wheel(self.xml, spin, center, self.rules),
-            lambda r: f"Added {spin} wheel #{r.info['block']} (centre "
-                      f"{self._joints_text(r.info['joints'][:1])}).")
+        return self._commit(edit.build(self.xml, pieces, self.rules), text)
 
     def delete(self, block):
         return self._commit(edit.delete(self.xml, block, self.rules),

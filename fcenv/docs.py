@@ -76,7 +76,7 @@ When several pieces share a joint, any of their names refers to it; images
 and describe show it under the lowest block number.
 
 Connecting: give a joint name wherever a point is expected (add_rod,
-add_wheel, rewire) to attach there. A point ([x, y] or relative) makes a new,
+add_wheel, build, rewire) to attach there. A point ([x, y] or relative) makes a new,
 unattached joint, even if it lands exactly on an existing one.
 
 Joined pieces pivot freely around the joint and never collide with each
@@ -98,9 +98,15 @@ Positions: [x, y]; or relative to a joint: {"from": "3:1", "offset": [dx, dy]},
 or {"from": "3:1", "length": L, "angle": A} (A in degrees: 0 right, 90 down).
 Relative points never attach to their "from" joint.
 
-add_rods builds several rods in one call, all or none; "@i:s" names end s of
-the i-th rod in the same call. add_rod with count builds identical copies
-(e.g. weights hanging from one joint).
+build adds any number of rods and wheels in one call, all or none, so a
+whole machine can go in at once. In it, "@i:s" names joint s of the i-th
+piece of the same call (counting from 0; rod ends 0-1, wheel centre 0 and
+rim 1-4). A rod with two wheels:
+  {"pieces": [{"rod": "wood", "a": [0, 100], "b": [80, 100]},
+              {"wheel": "cw", "center": "@0:0"},
+              {"wheel": "cw", "center": "@0:1"}]}
+add_rod with count builds identical copies (e.g. weights hanging from one
+joint).
 
 move_joint moves one joint: wheels and goal pieces on it move with it, rods
 stretch. move_component moves a piece and everything connected to it.
