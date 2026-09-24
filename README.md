@@ -170,6 +170,13 @@ building, winning, running, images, saves.
   nothing else uses the network.
 - `levels.to_save_design(xml, name, description)` gives FC's saveDesign
   format, which FC and fcsim export.
+- `python3 -m fcenv.levels decomp/scripts/contraption/data levels` writes
+  the game's built-in levels (47 official, 3 tutorials) from the decompiled
+  SWF to `levels/{official,tutorial}/NN-name.xml` (the `<retrieveLevel>`
+  element, as the server sends it), plus `levels/index.json` with each
+  level's number, id, name, paid-only flag, goal pieces and pre-built
+  pieces. Their terrain matches the server's copies in the cached designs.
+  `levels/` is gitignored, like `decomp/`.
 
 ## Tests
 

@@ -2,9 +2,15 @@
 
 fetch() talks to fantasticcontraption.com, for setting up an environment
 (e.g. saving level files ahead of time); nothing else here uses the network.
+from_decomp() reads the game's own levels out of the decompiled SWF.
+
+    python3 -m fcenv.levels decomp/scripts/contraption/data levels/
 """
 
+import json
 import re
+import sys
+from pathlib import Path
 import urllib.parse
 import urllib.request
 from xml.sax.saxutils import escape
@@ -57,3 +63,52 @@ def to_save_design(xml, name="", description="", user="", level_id=None):
         f"<userId>{escape(str(user))}</userId><levelId>{level_id}</levelId>"
         f"<isSolution>0</isSolution>{level.group(0)}</saveDesign>"
     )
+
+
+def from_decomp(data_dir):
+    """The official and tutorial levels built into the game, from the
+    decompiled contraption/data/{Official,Tutorial}Levels.as: a list of dicts
+    with set ("official" or "tutorial"), number, level_id, name, paid_only
+    and xml (the <retrieveLevel> element, as the server sends it)."""
+    out = []
+    for kind, f in (("tutorial", "TutorialLevels.as"), ("official", "OfficialLevels.as")):
+        text = (Path(data_dir) / f).read_text()
+        for x in re.findall(r"<retrieveLevel>.*?</retrieveLevel>", text, re.DOTALL):
+            # the decompiler unescapes names ("Pit & Pendulum")
+            x = re.sub(r"&(?!(?:amp|lt|gt|quot|apos|#\d+);)", "&amp;", x)
+            x = "\n".join(line for line in x.splitlines() if line.strip()) + "\n"
+            number = int(re.search(r"<(?:level|tutorial)Number>(\d+)<", x).group(1))
+            name = re.search(r"<name>(.*?)</name>", x).group(1)
+            out.append({"set": kind, "number": number,
+                         "level_id": int(re.search(r"<levelId>(\d+)<", x).group(1)),
+                         "name": name.replace("&amp;", "&"),
+                         # OfficialLevels.isPaidOnly
+                         "paid_only": kind == "official" and number > 21, "xml": x})
+    return out
+
+
+def write_decomp_levels(data_dir, out_dir):
+    """Write from_decomp()'s levels as out_dir/{official,tutorial}/NN-name.xml,
+    plus out_dir/index.json (everything but the XML, with the file name, the
+    number of goal pieces and of pre-built player pieces)."""
+    from .design import parse
+    out_dir = Path(out_dir)
+    index = []
+    for lv in from_decomp(data_dir):
+        slug = re.sub(r"[^a-z0-9]+", "-", lv["name"].lower()).strip("-")
+        path = Path(lv["set"]) / f"{lv['number']:02d}-{slug}.xml"
+        (out_dir / path).parent.mkdir(parents=True, exist_ok=True)
+        (out_dir / path).write_text(lv["xml"])
+        d = parse(lv["xml"])
+        goals = sum(b.goal for b in d.player_blocks)
+        index.append({k: v for k, v in lv.items() if k != "xml"} | {
+            "file": str(path), "goal_pieces": goals,
+            "prebuilt_pieces": len(d.player_blocks) - goals})
+    (out_dir / "index.json").write_text(json.dumps(index, indent=1) + "\n")
+    return index
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        sys.exit("usage: python3 -m fcenv.levels DECOMP_DATA_DIR OUT_DIR")
+    print(f"{len(write_decomp_levels(*sys.argv[1:]))} levels written to {sys.argv[2]}")
