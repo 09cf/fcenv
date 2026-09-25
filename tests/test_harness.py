@@ -50,6 +50,9 @@ class _Stream:
     def __enter__(self):
         return self
 
+    def __iter__(self):
+        return iter(())
+
     def __exit__(self, *exc):
         return False
 
@@ -147,6 +150,12 @@ class TestHarness(unittest.TestCase):
         r, _, _ = play(["no"], stop_reason="refusal")
         self.assertEqual((r["stop"], r["turns"]), ("refusal", 1))
 
+    def test_cut_off_without_calls(self):
+        r, _, client = play(["thinking and thinking"], stop_reason="max_tokens", max_turns=2)
+        self.assertEqual(r["nudges"], 2)  # both fake turns are cut off
+        self.assertIn("hit the output limit (32000 tokens",
+                      client.requests[1]["messages"][-1]["content"][0]["text"])
+
     def test_cut_off_calls_are_not_run(self):
         r, _, client = play([[("add_rod", {"kind": "wood", "a": [0, 0], "b": [0, 0]})]],
                             stop_reason="max_tokens", max_turns=2)
@@ -186,6 +195,18 @@ class TestHarness(unittest.TestCase):
         self.assertEqual([(e["tool"], e["ok"]) for e in log],
                          [("write_notes", True), ("describe", True), ("write_notes", False),
                           ("write_notes", True)])
+
+    def test_notes_written_as_text_get_a_reminder(self):
+        nb = Notebook()
+        r, _, client = play([[("submit", {})], "write_notes: lesson one",
+                             [("write_notes", {"text": "lesson one"})], "done"], notebook=nb)
+        self.assertEqual((nb.text, r["notes_turns"]), ("lesson one", 3))
+        self.assertIn("Your notes are unchanged",
+                      client.requests[2]["messages"][-1]["content"][0]["text"])
+        # leaving them as they are is fine too: one reminder, then done
+        r, _, client = play([[("submit", {})], "nothing new", "done"], notebook=Notebook("x"))
+        self.assertEqual(r["notes_turns"], 2)
+        self.assertEqual(len(client.requests), 3)
 
     def test_series_carries_notes_over(self):
         d = Path(tempfile.mkdtemp())

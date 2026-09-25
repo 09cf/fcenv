@@ -55,6 +55,12 @@ PRICES = {"claude-opus-5": (5.0, 25.0), "claude-opus-5-5": (4.0, 20.0),
 _NUDGE = ("(No one is here to reply. Keep going with the tools, and call submit "
           "when you're done.)")
 _CUT_OFF = "Not run: your message was cut off (max_tokens) before this call was complete."
+_UNCHANGED = ("(Your notes are unchanged: that was a reply, not a write_notes call. "
+              "Call write_notes to save notes; if you meant to leave them as they "
+              "are, just reply done.)")
+_TOO_LONG = ("(Your last message hit the output limit ({max_tokens} tokens, thinking "
+             "included) before you called a tool, so it was cut off. Work in smaller "
+             "steps: build, run, look, adjust.)")
 _REFLECT = ("The level is over. {outcome} Now update your notes with anything that will "
             "help you on later levels, which are different puzzles in the same game: "
             "write_notes replaces the whole notebook. Reply without a tool call when "
@@ -140,7 +146,7 @@ def _outcome(stop, run):
 
 def play(level_xml, out, client=None, model=MODEL, effort=None, max_tool_calls=200,
          max_turns=300, max_nudges=2, max_tokens=32000, notebook=None, level=None,
-         levels_total=None, budget=None, spent=0.0, reflect_turns=3, log=print):
+         levels_total=None, budget=None, spent=0.0, reflect_turns=4, log=print):
     """Play one level into directory `out`; returns the result dict (also
     written to result.json). `notebook` (a session.Notebook) turns notes on
     and is updated in place. `budget` (dollars, with `spent` already spent)
@@ -167,6 +173,11 @@ def play(level_xml, out, client=None, model=MODEL, effort=None, max_tool_calls=2
 
     def send(label):
         with client.messages.stream(messages=messages, **params) as s:
+            t0 = last = time.time()
+            for _ in s:  # events as they arrive: report on long turns
+                if time.time() - last >= 30:
+                    last = time.time()
+                    log(f"{label}: still going ({last - t0:.0f} s)")
             response = s.get_final_message()
         _usage(usage, response.usage)
         messages.append({"role": "assistant", "content": response.content})
@@ -220,7 +231,8 @@ def play(level_xml, out, client=None, model=MODEL, effort=None, max_tool_calls=2
                 continue  # resend as is; the model picks up where it left off
             elif nudges < max_nudges:
                 nudges += 1
-                say(_NUDGE)
+                say(_TOO_LONG.format(max_tokens=max_tokens)
+                    if response.stop_reason == "max_tokens" else _NUDGE)
             else:
                 stop = "gave_up"
             if stop is None and over_budget():
@@ -230,11 +242,22 @@ def play(level_xml, out, client=None, model=MODEL, effort=None, max_tool_calls=2
             session.submit()  # evaluate the current design, outside the log
         if notebook is not None and stop not in ("refusal", "budget"):
             say(_REFLECT.format(outcome=_outcome(stop, session.final)))
+            first, reminded = len(session.log), False
             while reflected < reflect_turns and not over_budget():
                 response, calls = send(f"notes {reflected + 1}")
                 reflected += 1
-                if not calls or response.stop_reason == "refusal":
+                if response.stop_reason == "refusal":
                     break
+                if not calls:
+                    # a reply isn't a save (agents have written their notes out
+                    # as text): say so, once
+                    wrote = any(e["tool"] == "write_notes" and e["ok"]
+                                for e in session.log[first:])
+                    if wrote or reminded:
+                        break
+                    reminded = True
+                    say(_UNCHANGED)
+                    continue
                 answer(response, calls, turns + reflected)
     finally:
         record.close()

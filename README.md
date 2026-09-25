@@ -205,7 +205,9 @@ python3 -m fcenv.harness LEVEL.xml --out x --print-prompt   # no API calls
   caching. At about 1,400 tokens per image, a 200-call level fits easily
   in the context.
 - If the agent replies without calling a tool, it's told no one is there
-  and to carry on (twice, then the level ends).
+  and to carry on; if its reply was cut off at `max_tokens`, it's told that
+  instead (twice in all, then the level ends). Turns longer than 30 s log
+  progress.
 - A level ends on submit, the tool-call limit, the turn limit, a refusal
   or the budget. If the agent didn't submit, the current design is
   evaluated anyway; `submitted_by_agent` in `result.json` records which.
@@ -213,8 +215,9 @@ python3 -m fcenv.harness LEVEL.xml --out x --print-prompt   # no API calls
   (`session.Notebook`, capped at `--notes-cap` characters) carries over
   between levels. It's in each level's prompt, and `write_notes` replaces
   it; writing notes is free (no tool call used) and works after submit.
-  After each level the agent is told the outcome and gets up to 3 turns to
-  update its notes. `--notes-from` starts from earlier notes, e.g. to try
+  After each level the agent is told the outcome and gets up to 4 turns to
+  update its notes (a reply without a write_notes call gets one reminder
+  that the notes are unchanged). `--notes-from` starts from earlier notes, e.g. to try
   one level with what a series learned.
 - **Cost**: each level's `result.json` has an estimated cost (from
   `harness.PRICES`), and `--budget` stops the run once the estimate passes
