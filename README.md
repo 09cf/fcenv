@@ -185,29 +185,42 @@ building, winning, running, images, saves.
 
 ## Agent harness
 
-`fcenv/harness.py` runs Claude on one level through the Messages API
-(needs `pip install anthropic`, plus an API key or an `ant auth login`
-profile):
+`fcenv/harness.py` runs Claude on levels through the Messages API (needs
+`pip install anthropic`, plus an API key or an `ant auth login` profile):
 
 ```
-python3 -m fcenv.harness level.xml --out runs/try1 [--model claude-opus-5]
-    [--effort high] [--max-tool-calls 200] [--max-turns 300]
-python3 -m fcenv.harness level.xml --out x --print-prompt   # no API calls
+python3 -m fcenv.harness LEVEL.xml [LEVEL.xml ...] --out runs/try1
+    [--model claude-opus-5] [--effort high] [--max-tool-calls 200]
+    [--max-turns 300] [--notes | --notes-from NOTES.md] [--notes-cap 15000]
+    [--budget DOLLARS]
+python3 -m fcenv.harness LEVEL.xml --out x --print-prompt   # no API calls
 ```
 
+- Levels are played in order, each as a fresh conversation, into
+  `OUT/<level name>/`; one level is a series of one.
 - The task prompt is the first user message; the tools are `tools.TOOLS`.
   Each turn's tool calls are dispatched in order and returned together.
   Thinking is adaptive (with summaries kept in the transcript).
 - The history is append-only, images included, with automatic prompt
-  caching. At about 1,400 tokens per image, a 200-call episode fits easily
+  caching. At about 1,400 tokens per image, a 200-call level fits easily
   in the context.
 - If the agent replies without calling a tool, it's told no one is there
-  and to carry on (twice, then the episode ends).
-- The episode ends on submit, the tool-call limit, the turn limit or a
-  refusal. If the agent didn't submit, the current design is evaluated
-  anyway; `submitted_by_agent` in `result.json` records which.
-- Output, written as the episode goes:
-  - `result.json`: stop reason, solved and when, counts, token usage;
+  and to carry on (twice, then the level ends).
+- A level ends on submit, the tool-call limit, the turn limit, a refusal
+  or the budget. If the agent didn't submit, the current design is
+  evaluated anyway; `submitted_by_agent` in `result.json` records which.
+- **Notes** (off unless `--notes` or `--notes-from`): a notebook
+  (`session.Notebook`, capped at `--notes-cap` characters) carries over
+  between levels. It's in each level's prompt, and `write_notes` replaces
+  it; writing notes is free (no tool call used) and works after submit.
+  After each level the agent is told the outcome and gets up to 3 turns to
+  update its notes. `--notes-from` starts from earlier notes, e.g. to try
+  one level with what a series learned.
+- **Cost**: each level's `result.json` has an estimated cost (from
+  `harness.PRICES`), and `--budget` stops the run once the estimate passes
+  it: mid-level, and before starting the next level.
+- Output per level, written as it goes:
+  - `result.json`: stop reason, solved and when, counts, token usage, cost;
   - `transcript.jsonl`: every message, timestamped, with images saved under
     `images/`;
   - `tools.jsonl`: one entry per tool call (tool, arguments, result text,
@@ -217,9 +230,11 @@ python3 -m fcenv.harness level.xml --out x --print-prompt   # no API calls
     it's the whole build process step by step (e.g. for rendering it as a
     video), and runs can be recomputed from the version they ran on;
   - the final design as `final.xml`, `final_save.xml`, `final_view.png`
-    and `final_trails.png`.
+    and `final_trails.png`; `notes.md`, the notebook after the level.
+- And for the series: `summary.json` (every level's result, solved count,
+  total cost) and `notes.md` (the latest notes).
 
-`python3 -m fcenv.video runs/try1` makes `runs/try1/episode.mp4` from the
+`python3 -m fcenv.video runs/try1/LEVEL` makes `episode.mp4` there from the
 record alone (needs ffmpeg): each design change in the build view, rejected
 calls in red, the images the agent looked at, and its runs and the
 submission re-simulated and played in real time (sped up past `--max-run`

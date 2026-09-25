@@ -1,19 +1,26 @@
-"""An agent loop: Claude plays one level through the tools, via the Messages API.
+"""An agent loop: Claude plays levels through the tools, via the Messages API.
 
-    python3 -m fcenv.harness level.xml --out runs/try1
+    python3 -m fcenv.harness levels/official/03-mind-the-gap.xml --out runs/try1
+    python3 -m fcenv.harness levels/official/0[1-5]-*.xml --out runs/s1 --notes
 
-The agent gets the task prompt as its first message and the tools in
-fcenv.tools. Each turn's tool calls go through tools.dispatch, in order,
-and their results (text and images) go back as tool results. The episode
-ends when the agent submits, runs out of tool calls, or hits the turn limit;
-if the agent never submitted, the current design is evaluated as if it had
-(result.json says which).
+Levels are played in order, each as a fresh conversation, into OUT/<level
+name>/ (one level is just a series of one). The agent gets the task prompt as
+its first message and the tools in fcenv.tools. Each turn's tool calls go
+through tools.dispatch, in order, and their results (text and images) go back
+as tool results. A level ends when the agent submits, runs out of tool calls,
+or hits the turn limit; if the agent never submitted, the current design is
+evaluated as if it had (result.json says which).
+
+With notes on (--notes, or --notes-from FILE to start from earlier notes),
+the agent has a notebook that carries over between levels: it's in each
+level's prompt, write_notes replaces it, and after each level the agent is
+told the outcome and gets a few turns to update it.
 
 The history is append-only (images included), so the prompt cache and the
-model's earlier thinking stay valid for the whole episode.
+model's earlier thinking stay valid for the whole level.
 
-Output directory:
-- result.json: outcome, counts, token usage;
+Output, per level:
+- result.json: outcome, counts, token usage, estimated cost;
 - transcript.jsonl: every message, timestamped, with images replaced by
   paths under images/;
 - tools.jsonl: the session log, one entry per tool call: tool, arguments,
@@ -23,7 +30,9 @@ Output directory:
   tools.jsonl this is the whole build process, step by step; runs can be
   recomputed from the version they ran on;
 - final.xml, final_save.xml (FC's saveDesign format), final_view.png and
-  final_trails.png: the design as evaluated.
+  final_trails.png: the design as evaluated;
+- notes.md: the notebook after the level, when notes are on.
+And for the series: OUT/summary.json, and OUT/notes.md (the latest notes).
 """
 
 import argparse
@@ -34,13 +43,22 @@ import time
 from pathlib import Path
 
 from . import docs, levels, render, tools
-from .session import Session
+from .session import Notebook, Session
 
 MODEL = "claude-opus-5"
+
+# $ per million tokens (input, output), for cost estimates only. Cache reads
+# are 0.1x input and (5-minute) cache writes 1.25x.
+PRICES = {"claude-opus-5": (5.0, 25.0), "claude-opus-5-5": (4.0, 20.0),
+          "claude-sonnet-5": (2.0, 10.0), "claude-haiku-4-5": (1.0, 5.0)}
 
 _NUDGE = ("(No one is here to reply. Keep going with the tools, and call submit "
           "when you're done.)")
 _CUT_OFF = "Not run: your message was cut off (max_tokens) before this call was complete."
+_REFLECT = ("The level is over. {outcome} Now update your notes with anything that will "
+            "help you on later levels, which are different puzzles in the same game: "
+            "write_notes replaces the whole notebook. Reply without a tool call when "
+            "you're done.")
 
 
 def _block_dict(b):
@@ -98,59 +116,101 @@ def _usage(total, u):
         total[k] = total.get(k, 0) + (getattr(u, k, None) or 0)
 
 
+def cost(model, usage):
+    """Estimated dollars for `usage` (as in result.json), or None for a model
+    not in PRICES."""
+    if model not in PRICES:
+        return None
+    i, o = PRICES[model]
+    return (usage.get("input_tokens", 0) * i
+            + usage.get("cache_creation_input_tokens", 0) * i * 1.25
+            + usage.get("cache_read_input_tokens", 0) * i * 0.1
+            + usage.get("output_tokens", 0) * o) / 1e6
+
+
+def _outcome(stop, run):
+    verdict = (f"Solved at tick {run.solve_tick}." if run.solve_tick is not None
+               else "Not solved.")
+    if stop == "submitted":
+        return f"You submitted: {verdict}"
+    why = {"tool_limit": "You ran out of tool calls", "turn_limit": "You ran out of turns",
+           "gave_up": "You stopped"}.get(stop, "The level ended")
+    return f"{why}, so your design as it was got evaluated: {verdict}"
+
+
 def play(level_xml, out, client=None, model=MODEL, effort=None, max_tool_calls=200,
-         max_turns=300, max_nudges=2, max_tokens=32000, log=print):
-    """Play one episode; returns the result dict (also written to result.json)."""
+         max_turns=300, max_nudges=2, max_tokens=32000, notebook=None, level=None,
+         levels_total=None, budget=None, spent=0.0, reflect_turns=3, log=print):
+    """Play one level into directory `out`; returns the result dict (also
+    written to result.json). `notebook` (a session.Notebook) turns notes on
+    and is updated in place. `budget` (dollars, with `spent` already spent)
+    stops the level once the estimated cost goes over it."""
     if client is None:
         import anthropic
         client = anthropic.Anthropic(max_retries=6)
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    session = Session(level_xml, max_tool_calls=max_tool_calls)
+    session = Session(level_xml, max_tool_calls=max_tool_calls, notebook=notebook)
     record = _Record(out)
-    params = dict(model=model, max_tokens=max_tokens, tools=tools.TOOLS,
+    params = dict(model=model, max_tokens=max_tokens, tools=tools.tools_for(session),
                   thinking={"type": "adaptive", "display": "summarized"},
                   cache_control={"type": "ephemeral"})
     if effort:
         params["output_config"] = {"effort": effort}
+    messages = []
+    usage = {}
 
-    prompt = [{"type": "text", "text": docs.task_prompt(session)}]
-    messages = [{"role": "user", "content": prompt}]
-    record.message("user", prompt)
+    def say(text):
+        content = [{"type": "text", "text": text}]
+        messages.append({"role": "user", "content": content})
+        record.message("user", content)
+
+    def send(label):
+        with client.messages.stream(messages=messages, **params) as s:
+            response = s.get_final_message()
+        _usage(usage, response.usage)
+        messages.append({"role": "assistant", "content": response.content})
+        record.message("assistant", response.content, stop_reason=response.stop_reason,
+                       usage=response.usage.to_dict())
+        calls = [b for b in response.content if b.type == "tool_use"]
+        log(f"{label}: {response.stop_reason}, "
+            f"{', '.join(c.name for c in calls) or 'no tool calls'}")
+        return response, calls
+
+    def answer(response, calls, turn):
+        results = []
+        for c in calls:
+            if response.stop_reason == "max_tokens":
+                ok, blocks = False, [{"type": "text", "text": _CUT_OFF}]
+            else:
+                ok, blocks = tools.dispatch(session, c.name, c.input,
+                                            turn=turn, tool_use_id=c.id)
+                record.sync(session)
+            results.append({"type": "tool_result", "tool_use_id": c.id,
+                            "content": blocks, "is_error": not ok})
+        messages.append({"role": "user", "content": results})
+        record.message("user", results)
+
+    def over_budget():
+        c = cost(model, usage)
+        return budget is not None and c is not None and spent + c > budget
+
+    say(docs.task_prompt(session, level, levels_total))
     record.sync(session)
-    usage, turns, nudges, stop = {}, 0, 0, None
+    turns = nudges = reflected = 0
+    stop = None
     start = time.time()
     try:
         while stop is None:
             if turns >= max_turns:
                 stop = "turn_limit"
                 break
-            with client.messages.stream(messages=messages, **params) as s:
-                response = s.get_final_message()
+            response, calls = send(f"turn {turns + 1}")
             turns += 1
-            _usage(usage, response.usage)
-            messages.append({"role": "assistant", "content": response.content})
-            record.message("assistant", response.content, stop_reason=response.stop_reason,
-                           usage=response.usage.to_dict())
-            calls = [b for b in response.content if b.type == "tool_use"]
-            log(f"turn {turns}: {response.stop_reason}, "
-                f"{', '.join(c.name for c in calls) or 'no tool calls'}")
-
             if response.stop_reason == "refusal":
                 stop = "refusal"
             elif calls:
-                results = []
-                for c in calls:
-                    if response.stop_reason == "max_tokens":
-                        ok, blocks = False, [{"type": "text", "text": _CUT_OFF}]
-                    else:
-                        ok, blocks = tools.dispatch(session, c.name, c.input,
-                                                    turn=turns, tool_use_id=c.id)
-                        record.sync(session)
-                    results.append({"type": "tool_result", "tool_use_id": c.id,
-                                    "content": blocks, "is_error": not ok})
-                messages.append({"role": "user", "content": results})
-                record.message("user", results)
+                answer(response, calls, turns)
                 if session.done:
                     stop = "submitted"
                 elif (session.max_tool_calls is not None
@@ -160,53 +220,112 @@ def play(level_xml, out, client=None, model=MODEL, effort=None, max_tool_calls=2
                 continue  # resend as is; the model picks up where it left off
             elif nudges < max_nudges:
                 nudges += 1
-                nudge = [{"type": "text", "text": _NUDGE}]
-                messages.append({"role": "user", "content": nudge})
-                record.message("user", nudge)
+                say(_NUDGE)
             else:
                 stop = "gave_up"
+            if stop is None and over_budget():
+                stop = "budget"
+        submitted = session.done
+        if not submitted:
+            session.submit()  # evaluate the current design, outside the log
+        if notebook is not None and stop not in ("refusal", "budget"):
+            say(_REFLECT.format(outcome=_outcome(stop, session.final)))
+            while reflected < reflect_turns and not over_budget():
+                response, calls = send(f"notes {reflected + 1}")
+                reflected += 1
+                if not calls or response.stop_reason == "refusal":
+                    break
+                answer(response, calls, turns + reflected)
     finally:
         record.close()
         if stop is None:
             stop = "error"
-        submitted = session.done
-        if not submitted:
-            session.submit()  # evaluate the current design, outside the log
+        submitted = any(e["tool"] == "submit" and e["ok"] for e in session.log)
+        if session.final is None:
+            session.submit()
         run = session.final
         result = {
             "model": model, "effort": effort, "stop": stop,
             "submitted_by_agent": submitted,
             "solved": run.solve_tick is not None, "solve_tick": run.solve_tick,
             "tool_calls": session.tool_calls, "max_tool_calls": max_tool_calls,
-            "turns": turns, "nudges": nudges, "usage": usage,
-            "seconds": round(time.time() - start, 1),
+            "turns": turns, "nudges": nudges, "notes_turns": reflected, "usage": usage,
+            "cost": cost(model, usage), "seconds": round(time.time() - start, 1),
         }
         (out / "result.json").write_text(json.dumps(result, indent=2) + "\n")
         (out / "final.xml").write_text(session.xml)
         (out / "final_save.xml").write_text(levels.to_save_design(session.xml, "final"))
         (out / "final_view.png").write_bytes(render.render(session.xml, "build").png)
         (out / "final_trails.png").write_bytes(run.trails(view="action").png)
+        if notebook is not None:
+            (out / "notes.md").write_text(notebook.text)
     return result
+
+
+def run_series(paths, out, notebook=None, budget=None, log=print, **kw):
+    """Play the level files `paths` in order into OUT/<level name>/, with
+    `notebook` (if any) carrying over. Stops starting levels once `budget`
+    dollars are spent. Returns the summary (also written to summary.json)."""
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    results, spent, names = [], 0.0, set()
+    summary = {"levels": results, "solved": 0, "played": 0, "cost": 0.0}
+    for k, path in enumerate(paths, 1):
+        name, n = Path(path).stem, 2
+        while name in names:  # the same level more than once
+            name, n = f"{Path(path).stem}-{n}", n + 1
+        names.add(name)
+        if budget is not None and spent >= budget:
+            log(f"budget of ${budget:.2f} reached: not playing {name} or later levels")
+            break
+        log(f"== {name} ({k}/{len(paths)})")
+        r = play(Path(path).read_text(), out / name, notebook=notebook, level=k,
+                 levels_total=len(paths), budget=budget, spent=spent,
+                 log=lambda m: log("  " + m), **kw)
+        spent += r["cost"] or 0.0
+        results.append({"level": name, **r})
+        log(f"   {'solved at tick %d' % r['solve_tick'] if r['solved'] else 'not solved'} "
+            f"({r['stop']}), {r['tool_calls']} calls, "
+            + (f"${r['cost']:.2f}" if r["cost"] is not None else "cost unknown"))
+        summary = {"levels": results, "solved": sum(r["solved"] for r in results),
+                   "played": len(results), "cost": spent}
+        (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+        if notebook is not None:
+            (out / "notes.md").write_text(notebook.text)
+    return summary
 
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("level", help="level XML file")
+    p.add_argument("levels", nargs="+", help="level XML files, played in order")
     p.add_argument("--out", required=True, help="output directory")
     p.add_argument("--model", default=MODEL)
     p.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
-    p.add_argument("--max-tool-calls", type=int, default=200)
-    p.add_argument("--max-turns", type=int, default=300)
+    p.add_argument("--max-tool-calls", type=int, default=200, help="per level")
+    p.add_argument("--max-turns", type=int, default=300, help="per level")
+    p.add_argument("--notes", action="store_true", help="keep a notebook across levels")
+    p.add_argument("--notes-from", metavar="FILE", help="start the notebook from FILE "
+                   "(e.g. an earlier series' notes.md); implies --notes")
+    p.add_argument("--notes-cap", type=int, default=15000, help="notebook size, characters")
+    p.add_argument("--budget", type=float, metavar="DOLLARS",
+                   help="stop once the estimated cost passes this")
     p.add_argument("--print-prompt", action="store_true",
-                   help="print the task prompt and exit (no API calls)")
+                   help="print the first level's prompt and exit (no API calls)")
     a = p.parse_args(argv)
-    xml = Path(a.level).read_text()
+    notebook = None
+    if a.notes or a.notes_from:
+        notebook = Notebook(Path(a.notes_from).read_text() if a.notes_from else "",
+                            a.notes_cap)
     if a.print_prompt:
-        print(docs.task_prompt(Session(xml, max_tool_calls=a.max_tool_calls)))
+        s = Session(Path(a.levels[0]).read_text(), max_tool_calls=a.max_tool_calls,
+                    notebook=notebook)
+        print(docs.task_prompt(s, 1, len(a.levels)))
         return 0
-    r = play(xml, a.out, model=a.model, effort=a.effort, max_tool_calls=a.max_tool_calls,
-             max_turns=a.max_turns, log=lambda m: print(m, file=sys.stderr))
-    print(json.dumps(r, indent=2))
+    summary = run_series(a.levels, a.out, notebook=notebook, budget=a.budget,
+                         model=a.model, effort=a.effort, max_tool_calls=a.max_tool_calls,
+                         max_turns=a.max_turns, log=lambda m: print(m, file=sys.stderr))
+    print(f"{summary['solved']}/{summary['played']} solved, "
+          f"estimated cost ${summary['cost']:.2f}")
     return 0
 
 

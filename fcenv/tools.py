@@ -95,6 +95,18 @@ TOOLS = [
     _tool("submit", "Submit the current design as final. Ends the session."),
 ]
 
+NOTES_TOOL = _tool(
+    "write_notes", "Replace your notebook's text; it carries over to later levels. Free: "
+    "doesn't use a tool call, and works after submit.",
+    {"text": {"type": "string"}}, ["text"])
+
+
+def tools_for(session):
+    """The tools an agent gets for `session`: TOOLS, plus write_notes when the
+    session has a notebook."""
+    return TOOLS + [NOTES_TOOL] if session.notebook is not None else TOOLS
+
+
 from .docs import HELP  # noqa: E402  (the on-demand reference)
 
 
@@ -174,6 +186,7 @@ def dispatch(session, name, args, **meta):
                                                  bool(args.get("motion", False))),
         "help": lambda: _help(args.get("topic")),
         "submit": s.submit,
+        "write_notes": lambda: s.write_notes(str(args["text"])),
     }
     from .session import Result
     # every call is logged and counted, unknown tools included

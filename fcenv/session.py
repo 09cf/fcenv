@@ -7,6 +7,7 @@ session only keeps:
 - checkpoints: named designs the agent saved;
 - the latest run (earlier runs aren't kept; checkpoints cover comparing);
 - log: one entry per tool call, for recreating the whole session.
+An optional Notebook carries the agent's notes from one session to the next.
 """
 
 import json
@@ -15,6 +16,18 @@ from dataclasses import dataclass, field
 
 from . import edit, render, run as runs, view
 from .design import joint_name
+
+
+# calls that work after submit and don't use up the tool-call budget
+_FREE = {"write_notes"}
+
+
+@dataclass
+class Notebook:
+    """The agent's notes, kept across sessions (levels); at most `cap`
+    characters."""
+    text: str = ""
+    cap: int = 15000
 
 
 @dataclass
@@ -26,12 +39,13 @@ class Result:
 
 class Session:
     def __init__(self, level_xml, rules=edit.Rules(), submit_timeout=6000,
-                 max_tool_calls=None):
+                 max_tool_calls=None, notebook=None):
         if isinstance(level_xml, bytes):
             level_xml = level_xml.decode()
         self.rules = rules
         self.submit_timeout = submit_timeout
         self.max_tool_calls = max_tool_calls
+        self.notebook = notebook
         self.versions = [level_xml]
         self.current = 0
         self._undo, self._redo = [], []
@@ -47,7 +61,8 @@ class Session:
 
     @property
     def tool_calls(self):
-        return len(self.log)
+        """Calls counted against max_tool_calls (writing notes is free)."""
+        return sum(e["tool"] not in _FREE for e in self.log)
 
     # ------------------------------------------------------------ plumbing
 
@@ -55,9 +70,11 @@ class Session:
         """Run one tool call: check the session is open and within budget,
         run it, log it (with `meta`, e.g. the caller's ids for the call)."""
         before = self.current
-        if self.done:
+        free = tool in _FREE
+        if self.done and not free:
             res = Result(False, "The session has ended (the design was submitted).")
-        elif self.max_tool_calls is not None and self.tool_calls >= self.max_tool_calls:
+        elif (not free and self.max_tool_calls is not None
+              and self.tool_calls >= self.max_tool_calls):
             res = Result(False, f"Out of tool calls (limit {self.max_tool_calls}).")
         else:
             try:
@@ -216,6 +233,18 @@ class Session:
         r, note = self._latest()
         pages = r.filmstrip(start, end, stride=stride, view=region, motion=motion)
         return Result(True, f"{len(pages)} page(s){note}.", [p.png for p in pages])
+
+    # ------------------------------------------------------------ notes
+
+    def write_notes(self, text):
+        nb = self.notebook
+        if nb is None:
+            return Result(False, "There are no notes in this session.")
+        if len(text) > nb.cap:
+            return Result(False, f"Too long: {len(text)} characters (at most {nb.cap}). "
+                                 "The notes are unchanged.")
+        nb.text = text
+        return Result(True, f"Notes saved ({len(text)} of {nb.cap} characters).")
 
     # ------------------------------------------------------------ end
 

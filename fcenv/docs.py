@@ -4,8 +4,9 @@ from . import edit, view
 from .design import parse
 
 
-def task_prompt(session):
-    """The prompt for an agent starting a session on its level."""
+def task_prompt(session, level=None, levels=None):
+    """The prompt for an agent starting a session on its level: level
+    `level` of `levels` when playing a series."""
     d = parse(session.versions[0])
     goals = [b for b in edit.describe(session.versions[0])["blocks"] if b["goal"]]
 
@@ -16,6 +17,22 @@ def task_prompt(session):
 
     limit = (f" You have {session.max_tool_calls} tool calls."
              if session.max_tool_calls is not None else "")
+    nb = session.notebook
+    notes = ""
+    if nb is not None:
+        which = f" (this is level {level} of {levels})" if level and levels else ""
+        notes = f"""
+You're playing a series of levels{which}. Each level starts a fresh
+conversation, and only your notebook carries over: it's below, and
+write_notes replaces it (at most {nb.cap} characters). Writing notes is free:
+it doesn't use a tool call, and works after submit. When a level ends,
+you'll be told the outcome and can update your notes.
+
+Your notes so far:
+<notes>
+{nb.text.strip() or "(empty)"}
+</notes>
+"""
     return f"""\
 This is an experimental evaluation. You are playing Fantastic Contraption, a
 physics puzzle game, through tools.
@@ -41,7 +58,7 @@ session ends. It counts as beaten if all goal pieces are inside the goal
 area at the same moment during that run.{limit}
 
 The help tool has details on: {", ".join(HELP)}.
-"""
+{notes}"""
 
 
 HELP = {
