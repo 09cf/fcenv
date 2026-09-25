@@ -248,6 +248,22 @@ class TestLegality(unittest.TestCase):
             self.assertFalse(leg.legal)
             self.assertEqual(leg.flags[1:], [fccore.ILLEGAL_OVERLAP] * 2)
 
+    def test_overlap_pairs(self):
+        # rods 1 and 2 cross; rod 3 sits in the second level block; the goal
+        # (0) and the first level block touch nothing
+        a = block("SolidRod", 0, 100, 80, 8, bid=1)
+        b = block("SolidRod", 0, 100, 80, 8, rot=1.0, bid=2)
+        c = block("SolidRod", 100, 150, 40, 8, bid=3)
+        level = [FLOOR, block("StaticRectangle", 100, 150, 60, 40)]
+        with fccore.Sim(design([GOAL, a, b, c], level)) as sim:
+            # design blocks 0-3, then level blocks 4-5
+            self.assertEqual(sim.overlaps(), [(1, 2), (3, 5)])
+            flags = sim.check_legal().flags
+            self.assertEqual([bool(f & fccore.ILLEGAL_OVERLAP) for f in flags],
+                             [False, True, True, True])
+        with fccore.Sim(design([GOAL, a], [FLOOR])) as sim:
+            self.assertEqual(sim.overlaps(), [])
+
     def test_check_does_not_disturb_simulation(self):
         for xml in sample_designs():
             with fccore.Sim(xml) as a, fccore.Sim(xml) as b:

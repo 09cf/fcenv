@@ -183,6 +183,13 @@ FCCORE_API int32_t fc_sim_goal_reached(const fc_sim *sim);
  * Uses a throwaway world, so it does not disturb the simulation. */
 FCCORE_API int32_t fc_sim_check_legal(const fc_sim *sim, int32_t *flags);
 
+/* The pairs of blocks touching in the initial (tick 0) design, as found by
+ * fc_sim_check_legal's overlap test: block indices (design blocks first,
+ * then level blocks, as in fc_sim_get_blocks), lower index first. Writes up
+ * to `max_pairs` pairs (2 entries each) to `pairs` (may be NULL) and
+ * returns the total number. Blocks sharing a joint never touch. */
+FCCORE_API int32_t fc_sim_overlaps(const fc_sim *sim, int32_t *pairs, int32_t max_pairs);
+
 /* Serialise the parsed design (tick-0 state) as saveDesign XML. The result is
  * malloc'd; release it with fc_free. */
 FCCORE_API char *fc_sim_export_xml(fc_sim *sim, const char *user, const char *name,

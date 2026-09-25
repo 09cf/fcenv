@@ -514,55 +514,96 @@ void fc_sim_set_win_check(fc_sim *sim, int32_t mode) { sim->win_check = mode; }
 
 /* Based on fcsim's mark_overlaps (src/arena.cpp), applied to every design
  * block rather than only the ones being dragged. */
-int32_t fc_sim_check_legal(const fc_sim *sim, int32_t *flags) {
+/* Build a throwaway world of the tick-0 design, collide it once, and call
+ * `fn` for every touching pair of blocks (indices into sim->blocks). The
+ * live bodies are left alone. */
+static void initial_contacts(const fc_sim *sim,
+                             void (*fn)(void *ctx, int32_t i1, int32_t i2),
+                             void *ctx) {
   struct design *design = sim->design;
   b2Body **saved;
   b2World *world;
   b2Contact *contact;
-  int32_t *f;
   int32_t i;
-  int32_t legal = 1;
 
   /* gen_world overwrites block->body, so stash the live bodies */
   saved = malloc((sim->n_blocks + 1) * sizeof(*saved));
   for (i = 0; i < sim->n_blocks; i++)
     saved[i] = sim->blocks[i]->body;
 
-  f = calloc(sim->n_design_blocks + 1, sizeof(*f));
   world = gen_world(design);
-
   b2ContactManager_CleanContactList(&world->m_contactManager);
   b2World_CleanBodyList(world);
   b2ContactManager_Collide(&world->m_contactManager);
 
-  for (i = 0; i < sim->n_design_blocks; i++)
-    if (!block_inside_area(sim->blocks[i], &design->build_area))
-      f[i] |= FC_ILLEGAL_OUTSIDE_BUILD_AREA;
-
-  for (contact = world->m_contactList; contact; contact = contact->m_next) {
-    if (contact->m_manifoldCount > 0) {
-      int32_t i1 = block_index(sim, contact->m_shape1->m_userData);
-      int32_t i2 = block_index(sim, contact->m_shape2->m_userData);
-      if (i1 >= 0 && i1 < sim->n_design_blocks)
-        f[i1] |= FC_ILLEGAL_OVERLAP;
-      if (i2 >= 0 && i2 < sim->n_design_blocks)
-        f[i2] |= FC_ILLEGAL_OVERLAP;
-    }
-  }
+  for (contact = world->m_contactList; contact; contact = contact->m_next)
+    if (contact->m_manifoldCount > 0)
+      fn(ctx, block_index(sim, contact->m_shape1->m_userData),
+         block_index(sim, contact->m_shape2->m_userData));
 
   free_world(world, design);
   for (i = 0; i < sim->n_blocks; i++)
     sim->blocks[i]->body = saved[i];
   free(saved);
+}
+
+struct legal_ctx {
+  int32_t n_design;
+  int32_t *f;
+};
+
+static void flag_overlap(void *ctx, int32_t i1, int32_t i2) {
+  struct legal_ctx *c = ctx;
+  if (i1 >= 0 && i1 < c->n_design)
+    c->f[i1] |= FC_ILLEGAL_OVERLAP;
+  if (i2 >= 0 && i2 < c->n_design)
+    c->f[i2] |= FC_ILLEGAL_OVERLAP;
+}
+
+int32_t fc_sim_check_legal(const fc_sim *sim, int32_t *flags) {
+  struct design *design = sim->design;
+  struct legal_ctx c;
+  int32_t i;
+  int32_t legal = 1;
+
+  c.n_design = sim->n_design_blocks;
+  c.f = calloc(sim->n_design_blocks + 1, sizeof(*c.f));
+  for (i = 0; i < sim->n_design_blocks; i++)
+    if (!block_inside_area(sim->blocks[i], &design->build_area))
+      c.f[i] |= FC_ILLEGAL_OUTSIDE_BUILD_AREA;
+  initial_contacts(sim, flag_overlap, &c);
 
   for (i = 0; i < sim->n_design_blocks; i++) {
-    if (f[i] && !sim->blocks[i]->goal)
+    if (c.f[i] && !sim->blocks[i]->goal)
       legal = 0;
     if (flags)
-      flags[i] = f[i];
+      flags[i] = c.f[i];
   }
-  free(f);
+  free(c.f);
   return legal;
+}
+
+struct pairs_ctx {
+  int32_t *pairs;
+  int32_t max;
+  int32_t n;
+};
+
+static void add_pair(void *ctx, int32_t i1, int32_t i2) {
+  struct pairs_ctx *c = ctx;
+  if (i1 < 0 || i2 < 0)
+    return;
+  if (c->n < c->max) {
+    c->pairs[2 * c->n] = i1 < i2 ? i1 : i2;
+    c->pairs[2 * c->n + 1] = i1 < i2 ? i2 : i1;
+  }
+  c->n++;
+}
+
+int32_t fc_sim_overlaps(const fc_sim *sim, int32_t *pairs, int32_t max_pairs) {
+  struct pairs_ctx c = {pairs, pairs ? max_pairs : 0, 0};
+  initial_contacts(sim, add_pair, &c);
+  return c.n;
 }
 
 char *fc_sim_export_xml(fc_sim *sim, const char *user, const char *name,

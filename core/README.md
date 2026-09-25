@@ -130,6 +130,8 @@ constructor (`../decomp/scripts/contraption/blocks/`):
   another block or leaves the build area (4mm tolerance). The design is legal
   if no non-goal block is flagged. This is stricter than fcsim's editor, which
   only checks the pieces being dragged.
+  `fc_sim_overlaps` (`sim.overlaps()`) gives the overlapping pairs
+  themselves, for saying what hits what.
 
 ## Agreement with the original game
 

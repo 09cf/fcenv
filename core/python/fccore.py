@@ -111,6 +111,7 @@ _sig("fc_sim_tick", C.c_int64, _P)
 _sig("fc_sim_solve_tick", C.c_int64, _P)
 _sig("fc_sim_goal_reached", C.c_int32, _P)
 _sig("fc_sim_check_legal", C.c_int32, _P, C.POINTER(C.c_int32))
+_sig("fc_sim_overlaps", C.c_int32, _P, C.POINTER(C.c_int32), C.c_int32)
 _sig("fc_sim_export_xml", C.c_void_p, _P, C.c_char_p, C.c_char_p, C.c_char_p)
 _sig("fc_free", None, _P)
 
@@ -246,6 +247,14 @@ class Sim:
         flags = (C.c_int32 * max(self.n_design_blocks, 1))()
         legal = _lib.fc_sim_check_legal(self._h, flags)
         return Legality(bool(legal), list(flags[: self.n_design_blocks]))
+
+    def overlaps(self):
+        """Pairs (i, j), i < j, of blocks touching at tick 0 (the overlaps
+        check_legal flags): indices as in blocks(), design blocks first."""
+        n = _lib.fc_sim_overlaps(self._h, None, 0)
+        buf = (C.c_int32 * max(2 * n, 1))()
+        _lib.fc_sim_overlaps(self._h, buf, n)
+        return sorted((buf[2 * k], buf[2 * k + 1]) for k in range(n))
 
     def export_xml(self, user="", name="", desc=""):
         p = _lib.fc_sim_export_xml(self._h, user.encode(), name.encode(), desc.encode())

@@ -328,9 +328,35 @@ def _choose_jointed_to(design, graph, first_choice, max_imports=24):
     return None
 
 
-def _commit(st, design, graph, changed, old_index, first_choice, info):
+def _overlap(xml, design, changed, flagged, name):
+    """(message, block IDs) for a new overlap: a changed block and what it
+    overlaps, with at least one of the two newly flagged (`flagged`)."""
+    n = len(design.player_blocks)
+    with fccore.Sim(xml.encode()) as sim:
+        pairs = sim.overlaps()
+    found = []
+    for a, b in pairs:
+        for c, o in ((a, b), (b, a)):
+            if c in changed and (c in flagged or o in flagged):
+                found.append((c, o))
+    if not found:
+        i = min(flagged)
+        return f"{name(i)} would overlap another block", [design.ids[i]]
+    c, o = min(found)
+    if o >= n:
+        return f"{name(c)} would overlap the level (L{o - n})", [design.ids[c]]
+    return f"{name(c)} would overlap {name(o)}", [design.ids[c], design.ids[o]]
+
+
+def _commit(st, design, graph, changed, old_index, first_choice, info, names=None):
     """Serialize, verify and legality-check the intended design/graph.
-    old_index[i] is the pre-edit index of new block i (None if new)."""
+    old_index[i] is the pre-edit index of new block i (None if new); names
+    maps new blocks' indices to how errors should call them."""
+    names = names or {}
+
+    def name(i):
+        return names.get(i, f"#{design.ids[i]}")
+
     _invariants(design, graph, changed)
     found = _choose_jointed_to(design, graph, first_choice)
     if found is None:
@@ -339,17 +365,19 @@ def _commit(st, design, graph, changed, old_index, first_choice, info):
                     "(two joints of connected blocks at the same point?)",
                     sorted(design.ids[i] for i in changed))
     xml, got = found
+    overlapping = set()
     for i, flags in enumerate(got.flags):
         if got.types[i] in GOAL_TYPES:
             continue
         before = 0 if old_index[i] is None or i in changed else st.graph.flags[old_index[i]]
         new = flags & ~before
-        bid = design.ids[i]
-        if new & fccore.ILLEGAL_OVERLAP:
-            raise _Fail(ErrorCode.OVERLAP, f"block {bid} would overlap another block", [bid])
         if new & fccore.ILLEGAL_OUTSIDE_BUILD_AREA:
             raise _Fail(ErrorCode.OUTSIDE_BUILD_AREA,
-                        f"block {bid} would be outside the build area", [bid])
+                        f"{name(i)} would be outside the build area", [design.ids[i]])
+        if new & fccore.ILLEGAL_OVERLAP:
+            overlapping.add(i)
+    if overlapping:
+        raise _Fail(ErrorCode.OVERLAP, *_overlap(xml, design, changed, overlapping, name))
     return Ok(xml, info)
 
 
@@ -391,6 +419,9 @@ class Wheel:
     center: object
 
 
+_KIND = {RodKind.WOOD: "wood rod", RodKind.WATER: "water rod", Spin.NONE: "wheel",
+         Spin.CW: "cw wheel", Spin.CCW: "ccw wheel"}
+
 # a new wheel's rim joints (slots 1-4), relative to its centre
 _RIM = ((20, 0), (0, 20), (-20, 0), (0, -20))
 
@@ -426,9 +457,14 @@ def _build(st, pieces, rules, keep_ids=None):
     blocks = list(st.design.player_blocks)
     ids = list(st.design.ids)
     batch = []
+    names = {}
     for i, piece in enumerate(pieces):
         where = f"piece {i} of the batch: " if len(pieces) > 1 else ""
         n = n0 + i
+        kind = _KIND[RodKind(piece.kind) if isinstance(piece, Rod) else Spin(piece.spin)]
+        names[n] = (f"rod #{keep_ids[i]}" if keep_ids
+                    else f"the new {kind}" if len(pieces) == 1
+                    else f"piece {i} of the batch ({kind})")
         try:
             ends = [_endpoint(st, graph, ep, batch)
                     for ep in ((piece.a, piece.b) if isinstance(piece, Rod) else (piece.center,))]
@@ -478,7 +514,7 @@ def _build(st, pieces, rules, keep_ids=None):
                        for b, n in zip(new_ids, batch)]}
     return _commit(st, design, graph, set(batch),
                    list(range(n0)) + [None] * len(pieces),
-                   [list(j) for j in st.orig_jointed] + [None] * len(pieces), info)
+                   [list(j) for j in st.orig_jointed] + [None] * len(pieces), info, names)
 
 
 def _deleted(st, block):
