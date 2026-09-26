@@ -241,6 +241,35 @@ python3 -m fcenv.harness LEVEL.xml --out x --print-prompt   # no API calls
 - And for the series: `summary.json` (every level's result, solved count,
   total cost) and `notes.md` (the latest notes).
 
+### Through Claude Code
+
+`fcenv/cc.py` plays the same way with Claude Code (`claude -p`) running
+the loop, e.g. on a Claude subscription instead of API credits (needs
+`pip install mcp` and Claude Code logged in):
+
+```
+python3 -m fcenv.cc LEVEL.xml [LEVEL.xml ...] --out runs/cc1 [--model M]
+    [--effort E] [--max-minutes 30] [--max-usage 0.8]
+    [--notes | --notes-from NOTES.md]
+```
+
+- The tools are served over MCP from the driver's process
+  (`toolserver.ToolServer`, streamable HTTP on localhost), so a level's
+  session survives across its claude runs: the first, then resumed runs
+  for nudges and the notes phase.
+- Claude Code gets our prompt with an empty system prompt, no built-in
+  tools, no settings files and an empty working directory, so it sees only
+  our tools. It runs on the plan's default model unless `--model` says
+  otherwise; `model` in `result.json` records which.
+- Limits: wall clock per level (`--max-minutes`, plus `--notes-minutes`
+  for the notes phase), and plan usage: Claude Code reports how full the
+  5-hour and 7-day windows are, and the level (and series) stops once
+  either passes `--max-usage`. `plan_usage` in `result.json` has each
+  window before and after the level.
+- Output is the same as the API harness's (tool calls are linked to the
+  transcript by tool and arguments), plus `cc/stream.jsonl`, Claude Code's
+  events with images left out.
+
 `python3 -m fcenv.video runs/try1/LEVEL` makes `episode.mp4` there from the
 record alone (needs ffmpeg): each design change in the build view, rejected
 calls in red, the images the agent looked at, and its runs and the
@@ -251,6 +280,6 @@ words for that turn at the bottom.
 ## Tests
 
 `python3 -m unittest tests.test_edit tests.test_render tests.test_session
-tests.test_harness tests.test_video` (after `make -C core`; the harness tests use a scripted
-client, not the API). Tests that use real designs need `core/tests/fetch_designs.py` run
+tests.test_harness tests.test_video tests.test_cc` (after `make -C core`; the harness tests use a scripted
+client, not the API, and `tests/fake_claude.py` stands in for Claude Code). Tests that use real designs need `core/tests/fetch_designs.py` run
 once; they're skipped otherwise.

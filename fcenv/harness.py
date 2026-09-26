@@ -266,31 +266,38 @@ def play(level_xml, out, client=None, model=MODEL, effort=None, max_tool_calls=N
         if stop is None:
             stop = "error"
         submitted = any(e["tool"] == "submit" and e["ok"] for e in session.log)
-        if session.final is None:
-            session.submit()
-        run = session.final
-        result = {
-            "model": model, "effort": effort, "stop": stop,
-            "submitted_by_agent": submitted,
-            "solved": run.solve_tick is not None, "solve_tick": run.solve_tick,
-            "tool_calls": session.tool_calls, "max_tool_calls": max_tool_calls,
-            "turns": turns, "nudges": nudges, "notes_turns": reflected, "usage": usage,
-            "cost": cost(model, usage), "seconds": round(time.time() - start, 1),
-        }
-        (out / "result.json").write_text(json.dumps(result, indent=2) + "\n")
-        (out / "final.xml").write_text(session.xml)
-        (out / "final_save.xml").write_text(levels.to_save_design(session.xml, "final"))
-        (out / "final_view.png").write_bytes(render.render(session.xml, "build").png)
-        (out / "final_trails.png").write_bytes(run.trails(view="action").png)
-        if notebook is not None:
-            (out / "notes.md").write_text(notebook.text)
+        result = finish(out, session, {
+            "runner": "api", "model": model, "effort": effort, "stop": stop, "submitted_by_agent": submitted,
+            "max_tool_calls": max_tool_calls, "turns": turns, "nudges": nudges,
+            "notes_turns": reflected, "usage": usage, "cost": cost(model, usage),
+            "seconds": round(time.time() - start, 1)})
     return result
 
 
-def run_series(paths, out, notebook=None, budget=None, log=print, **kw):
+def finish(out, session, fields):
+    """Evaluate the design if the agent didn't submit, and write the level's
+    result.json (`fields` plus the outcome) and final design files."""
+    if session.final is None:
+        session.submit()  # evaluate the current design, outside the log
+    run = session.final
+    result = dict(fields, solved=run.solve_tick is not None, solve_tick=run.solve_tick,
+                  tool_calls=session.tool_calls)
+    (out / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+    (out / "final.xml").write_text(session.xml)
+    (out / "final_save.xml").write_text(levels.to_save_design(session.xml, "final"))
+    (out / "final_view.png").write_bytes(render.render(session.xml, "build").png)
+    (out / "final_trails.png").write_bytes(run.trails(view="action").png)
+    if session.notebook is not None:
+        (out / "notes.md").write_text(session.notebook.text)
+    return result
+
+
+def run_series(paths, out, notebook=None, budget=None, log=print, player=None, **kw):
     """Play the level files `paths` in order into OUT/<level name>/, with
     `notebook` (if any) carrying over. Stops starting levels once `budget`
-    dollars are spent. Returns the summary (also written to summary.json)."""
+    dollars are spent, or after a level stopped for a budget or usage limit.
+    `player` plays a level (default: play, through the API; see cc.play for
+    Claude Code). Returns the summary (also written to summary.json)."""
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     results, spent, names = [], 0.0, set()
@@ -304,19 +311,29 @@ def run_series(paths, out, notebook=None, budget=None, log=print, **kw):
             log(f"budget of ${budget:.2f} reached: not playing {name} or later levels")
             break
         log(f"== {name} ({k}/{len(paths)})")
-        r = play(Path(path).read_text(), out / name, notebook=notebook, level=k,
-                 levels_total=len(paths), budget=budget, spent=spent,
-                 log=lambda m: log("  " + m), **kw)
+        if player is None:
+            r = play(Path(path).read_text(), out / name, notebook=notebook, level=k,
+                     levels_total=len(paths), budget=budget, spent=spent,
+                     log=lambda m: log("  " + m), **kw)
+        else:
+            r = player(Path(path).read_text(), out / name, notebook=notebook, level=k,
+                       levels_total=len(paths), log=lambda m: log("  " + m), **kw)
         spent += r["cost"] or 0.0
         results.append({"level": name, **r})
+        if r.get("plan_usage"):
+            used = ", ".join(f"{w} {a:.0%}->{b:.0%}" for w, (a, b) in r["plan_usage"].items())
+        else:
+            used = f"${r['cost']:.2f}" if r["cost"] is not None else "cost unknown"
         log(f"   {'solved at tick %d' % r['solve_tick'] if r['solved'] else 'not solved'} "
-            f"({r['stop']}), {r['tool_calls']} calls, "
-            + (f"${r['cost']:.2f}" if r["cost"] is not None else "cost unknown"))
+            f"({r['stop']}), {r['tool_calls']} calls, {used}")
         summary = {"levels": results, "solved": sum(r["solved"] for r in results),
                    "played": len(results), "cost": spent}
         (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
         if notebook is not None:
             (out / "notes.md").write_text(notebook.text)
+        if r["stop"] in ("budget", "usage_limit"):
+            log(f"stopped ({r['stop']}): not playing the rest")
+            break
     return summary
 
 
