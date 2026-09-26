@@ -21,12 +21,14 @@ def task_prompt(session, level=None, levels=None):
     notes = ""
     if nb is not None:
         which = f" (this is level {level} of {levels})" if level and levels else ""
+        free = (" It doesn't count towards your tool calls."
+                if session.max_tool_calls is not None else "")
         notes = f"""
 You're playing a series of levels{which}. Each level starts a fresh
 conversation, and only your notebook carries over: it's below, and
-write_notes replaces it (at most {nb.cap} characters). Writing notes is free:
-it doesn't use a tool call, and works after submit. When a level ends,
-you'll be told the outcome and can update your notes.
+write_notes replaces it (at most {nb.cap} characters). write_notes works at
+any time, even after submit.{free} When a level ends, you'll be told the
+outcome and can update your notes.
 
 Your notes so far:
 <notes>

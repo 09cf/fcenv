@@ -190,7 +190,7 @@ building, winning, running, images, saves.
 
 ```
 python3 -m fcenv.harness LEVEL.xml [LEVEL.xml ...] --out runs/try1
-    [--model claude-opus-5] [--effort high] [--max-tool-calls 200]
+    [--model claude-opus-5] [--effort high] [--max-tool-calls N]
     [--max-turns 300] [--notes | --notes-from NOTES.md] [--notes-cap 15000]
     [--budget DOLLARS]
 python3 -m fcenv.harness LEVEL.xml --out x --print-prompt   # no API calls
@@ -202,8 +202,12 @@ python3 -m fcenv.harness LEVEL.xml --out x --print-prompt   # no API calls
   Each turn's tool calls are dispatched in order and returned together.
   Thinking is adaptive (with summaries kept in the transcript).
 - The history is append-only, images included, with automatic prompt
-  caching. At about 1,400 tokens per image, a 200-call level fits easily
-  in the context.
+  caching. At about 1,400 tokens per image, even a 200-call level fits
+  easily in the context.
+- Tool calls are counted (`tool_calls` in `result.json`), not limited:
+  there's no limit unless `--max-tool-calls` sets one, and then the prompt
+  tells the agent. Cost is what `--budget` limits; `--max-turns` is a
+  backstop against runaway loops.
 - If the agent replies without calling a tool, it's told no one is there
   and to carry on; if its reply was cut off at `max_tokens`, it's told that
   instead (twice in all, then the level ends). Turns longer than 30 s log

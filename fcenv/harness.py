@@ -144,11 +144,13 @@ def _outcome(stop, run):
     return f"{why}, so your design as it was got evaluated: {verdict}"
 
 
-def play(level_xml, out, client=None, model=MODEL, effort=None, max_tool_calls=200,
+def play(level_xml, out, client=None, model=MODEL, effort=None, max_tool_calls=None,
          max_turns=300, max_nudges=2, max_tokens=32000, notebook=None, level=None,
          levels_total=None, budget=None, spent=0.0, reflect_turns=4, log=print):
     """Play one level into directory `out`; returns the result dict (also
-    written to result.json). `notebook` (a session.Notebook) turns notes on
+    written to result.json). Tool calls are counted, not limited, unless
+    `max_tool_calls` is given (the prompt then says so); `budget` is the
+    limit that matters, and `max_turns` a backstop. `notebook` (a session.Notebook) turns notes on
     and is updated in place. `budget` (dollars, with `spent` already spent)
     stops the level once the estimated cost goes over it."""
     if client is None:
@@ -324,7 +326,8 @@ def main(argv=None):
     p.add_argument("--out", required=True, help="output directory")
     p.add_argument("--model", default=MODEL)
     p.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
-    p.add_argument("--max-tool-calls", type=int, default=200, help="per level")
+    p.add_argument("--max-tool-calls", type=int, help="per level; none by default (the "
+                   "agent is told about a limit when there is one)")
     p.add_argument("--max-turns", type=int, default=300, help="per level")
     p.add_argument("--notes", action="store_true", help="keep a notebook across levels")
     p.add_argument("--notes-from", metavar="FILE", help="start the notebook from FILE "

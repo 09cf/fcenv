@@ -96,8 +96,8 @@ TOOLS = [
 ]
 
 NOTES_TOOL = _tool(
-    "write_notes", "Replace your notebook's text; it carries over to later levels. Free: "
-    "doesn't use a tool call, and works after submit.",
+    "write_notes", "Replace your notebook's text; it carries over to later levels. Works "
+    "at any time, even after submit.",
     {"text": {"type": "string"}}, ["text"])
 
 
