@@ -101,6 +101,15 @@ class TestHarness(unittest.TestCase):
         self.assertEqual([(e["turn"], e["tool_use_id"]) for e in log],
                          [(1, "t1_0"), (1, "t1_1"), (2, "t2_0"), (3, "t3_0"), (3, "t3_1"),
                           (4, "t4_0")])
+        md = (out / "transcript.md").read_text()
+        self.assertTrue(md.startswith("# "))
+        self.assertIn("**Not solved** (submitted); 6 tool calls, 4 turns", md)
+        self.assertIn("## Turn 4", md)
+        self.assertIn('**→ add_rod**(kind="wood", a="0:1", b={"from": "0:1", "offset": [60, 0]})',
+                      md)
+        self.assertIn("![](images/0000.png)", md)
+        self.assertIn("<summary><i>thinking</i></summary>", md)
+        self.assertNotIn("base64", md)
         for f in ("final.xml", "final_save.xml", "final_view.png", "final_trails.png"):
             self.assertTrue((out / f).stat().st_size > 0, f)
         self.assertIn('id="1"', (out / "final.xml").read_text())
@@ -189,6 +198,9 @@ class TestHarness(unittest.TestCase):
         self.assertEqual([m["role"] for m in msgs], ["user", "assistant", "user", "user"])
         self.assertIn("You ran out of tool calls, so your design as it was got evaluated: "
                       "Not solved.", msgs[3]["content"][0]["text"])
+        md = (out / "transcript.md").read_text()
+        self.assertIn("**Harness:**\n\n> The level is over.", md)
+        self.assertIn("**→ write_notes**()\n\n```text\nb\n```", md)
         msgs = client.requests[2]["messages"]
         self.assertIn("Too long", msgs[5]["content"][0]["content"][0]["text"])
         log = [json.loads(s) for s in (out / "tools.jsonl").read_text().splitlines()]

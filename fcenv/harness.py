@@ -21,6 +21,7 @@ model's earlier thinking stay valid for the whole level.
 
 Output, per level:
 - result.json: outcome, counts, token usage, estimated cost;
+- transcript.md: the readable version (see readable.py);
 - transcript.jsonl: every message, timestamped, with images replaced by
   paths under images/;
 - tools.jsonl: the session log, one entry per tool call: tool, arguments,
@@ -42,7 +43,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import docs, levels, render, tools
+from . import docs, levels, readable, render, tools
 from .session import Notebook, Session
 
 MODEL = "claude-opus-5"
@@ -276,7 +277,8 @@ def play(level_xml, out, client=None, model=MODEL, effort=None, max_tool_calls=N
 
 def finish(out, session, fields):
     """Evaluate the design if the agent didn't submit, and write the level's
-    result.json (`fields` plus the outcome) and final design files."""
+    result.json (`fields` plus the outcome), final design files and
+    readable transcript (transcript.md)."""
     if session.final is None:
         session.submit()  # evaluate the current design, outside the log
     run = session.final
@@ -289,6 +291,8 @@ def finish(out, session, fields):
     (out / "final_trails.png").write_bytes(run.trails(view="action").png)
     if session.notebook is not None:
         (out / "notes.md").write_text(session.notebook.text)
+    if (out / "transcript.jsonl").exists():
+        readable.write(out)
     return result
 
 

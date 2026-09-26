@@ -228,6 +228,11 @@ python3 -m fcenv.harness LEVEL.xml --out x --print-prompt   # no API calls
   it: mid-level, and before starting the next level.
 - Output per level, written as it goes:
   - `result.json`: stop reason, solved and when, counts, token usage, cost;
+  - `transcript.md`: the readable version: turn by turn, the agent's
+    thinking (folded) and words, its tool calls written compactly and
+    their results, with images inline and messages from the harness
+    marked. `python3 -m fcenv.readable DIR` (re)makes it for a level or a
+    whole series;
   - `transcript.jsonl`: every message, timestamped, with images saved under
     `images/`;
   - `tools.jsonl`: one entry per tool call (tool, arguments, result text,
