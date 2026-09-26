@@ -58,7 +58,9 @@ TOOLS = [
     _tool("add_wheel", "Add a wheel centred on a joint or a point.",
           {"spin": {"enum": ["none", "cw", "ccw"]}, "center": _POINT_OR_JOINT},
           ["spin", "center"]),
-    _tool("delete", "Delete a piece.", {"block": {"type": "integer"}}, ["block"]),
+    _tool("delete", "Delete pieces (all or none).",
+          {"blocks": {"type": "array", "items": {"type": "integer"}, "minItems": 1}},
+          ["blocks"]),
     _tool("rewire", "Connect end 0 or 1 of a rod to another joint (the rod stretches), "
           "or detach it (to: null).",
           {"rod": {"type": "integer"}, "end": {"enum": [0, 1]},
@@ -73,7 +75,8 @@ TOOLS = [
     _tool("redo", "Redo the last undone change."),
     _tool("save", "Save the current design under a name.",
           {"name": {"type": "string"}}, ["name"]),
-    _tool("load", "Load a saved design (undoable).", {"name": {"type": "string"}}, ["name"]),
+    _tool("load", 'Load a saved design (undoable); "start" is the level as given.',
+          {"name": {"type": "string"}}, ["name"]),
     _tool("list_saves", "List saved designs."),
     _tool("describe", "The design as text: pieces grouped by connected component, "
           "their joints, and the level."),
@@ -162,7 +165,8 @@ def dispatch(session, name, args, **meta):
                                         _endpoint(args["b"]))] * int(args.get("count", 1))),
         "build": lambda: s.build([_piece(p) for p in args["pieces"]]),
         "add_wheel": lambda: s.build([Wheel(args["spin"], _endpoint(args["center"]))]),
-        "delete": lambda: s.delete(int(args["block"])),
+        "delete": lambda: s.delete([int(b) for b in args["blocks"]] if "blocks" in args
+                                   else [int(args["block"])]),  # (older records)
         "rewire": lambda: s.rewire(int(args["rod"]), int(args["end"]),
                                    None if args.get("to") is None else _joint(args["to"])),
         "move_joint": lambda: s.move_joint(_joint(args["joint"]), _endpoint(args["to"])),

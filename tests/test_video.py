@@ -14,7 +14,7 @@ from tests.test_harness import play  # noqa: E402
 EPISODE = [
     [("view", {})],
     [("add_rod", {"kind": "wood", "a": "0:1", "b": {"from": "0:1", "offset": [60, 0]}}),
-     ("delete", {"block": 0})],
+     ("delete", {"blocks": [0]})],
     [("run", {"timeout": 40}), ("run_frame", {"tick": 10})],
     [("submit", {})],
 ]

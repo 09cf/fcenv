@@ -93,7 +93,31 @@ class TestTools(unittest.TestCase):
         call(s, "undo")  # loading is undoable
         self.assertEqual(s.xml, two)
         ok, text, _ = call(s, "load", name="nope")
-        self.assertEqual((ok, text), (False, "No checkpoint 'nope' (saved: 'one rod')."))
+        self.assertEqual((ok, text),
+                         (False, "No checkpoint 'nope' (saved: 'start', 'one rod')."))
+        # "start" is the level as given: a reset in one call
+        ok, text, _ = call(s, "list_saves")
+        self.assertTrue(text.startswith("start: 1 blocks (the level as given)\none rod: 2"))
+        self.assertFalse(call(s, "save", name="start")[0])
+        call(s, "load", name="start")
+        self.assertEqual(s.xml, LEVEL)
+
+    def test_delete_several(self):
+        s = Session(LEVEL)
+        call(s, "build", pieces=[{"rod": "wood", "a": [-60, 100], "b": [60, 100]},
+                                 {"wheel": "cw", "center": "@0:0"},
+                                 {"wheel": "cw", "center": "@0:1"}])
+        ok, text, _ = call(s, "delete", blocks=[0, 2])  # all or none: 0 is the goal
+        self.assertFalse(ok)
+        self.assertIn("goal", text)
+        self.assertEqual(len(s.versions), 2)
+        ok, text, _ = call(s, "delete", blocks=[3, 2, 2])
+        self.assertEqual((ok, text), (True, "Deleted #3, #2."))
+        self.assertEqual([b["id"] for b in __import__("fcenv").edit.describe(s.xml)["blocks"]],
+                         [0, 1])
+        call(s, "undo")  # one step
+        self.assertEqual(len(__import__("fcenv").edit.describe(s.xml)["blocks"]), 4)
+        self.assertTrue(call(s, "delete", block=1)[0])  # the old form, in older records
 
     def test_runs_and_images(self):
         s = Session(LEVEL)

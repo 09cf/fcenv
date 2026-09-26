@@ -49,7 +49,7 @@ class Session:
         self.versions = [level_xml]
         self.current = 0
         self._undo, self._redo = [], []
-        self.checkpoints = {}  # name -> version index
+        self.checkpoints = {"start": 0}  # name -> version index; "start": the level
         self.last_run = None  # (Run, version index)
         self.log = []
         self.done = False
@@ -128,9 +128,19 @@ class Session:
             return "Added " + "; ".join(parts) + "."
         return self._commit(edit.build(self.xml, pieces, self.rules), text)
 
-    def delete(self, block):
-        return self._commit(edit.delete(self.xml, block, self.rules),
-                            lambda r: f"Deleted #{block}.")
+    def delete(self, blocks):
+        """Delete pieces (block IDs), all or none."""
+        blocks = list(dict.fromkeys(blocks))
+        if not blocks:
+            return Result(False, "No pieces given.")
+        xml = self.xml
+        for b in blocks:
+            r = edit.delete(xml, b, self.rules)
+            if isinstance(r, edit.Err):
+                break
+            xml = r.xml
+        return self._commit(r if isinstance(r, edit.Err) else edit.Ok(xml, {}),
+                            lambda r: f"Deleted #{', #'.join(map(str, blocks))}.")
 
     def rewire(self, rod, end, to):
         return self._commit(
@@ -170,24 +180,26 @@ class Session:
         return Result(True, "Redone.")
 
     def save(self, name):
+        if name == "start":
+            return Result(False, "'start' is the level as given; save under another name.")
         self.checkpoints[name] = self.current
         return Result(True, f"Saved the current design as {name!r}.")
 
     def load(self, name):
         if name not in self.checkpoints:
-            known = ", ".join(repr(n) for n in self.checkpoints) or "none yet"
+            known = ", ".join(repr(n) for n in self.checkpoints)
             return Result(False, f"No checkpoint {name!r} (saved: {known}).")
         self._set(self.versions[self.checkpoints[name]])
         return Result(True, f"Loaded {name!r}.")
 
     def list_checkpoints(self):
-        if not self.checkpoints:
-            return Result(True, "No checkpoints saved.")
         lines = []
         for name, v in self.checkpoints.items():
             n = len(edit.describe(self.versions[v])["blocks"])
             same = self.versions[v] == self.xml
-            lines.append(f"{name}: {n} blocks" + (" (same as the current design)" if same else ""))
+            lines.append(f"{name}: {n} blocks" + (" (the level as given)" if name == "start"
+                                                   else "")
+                         + (" (same as the current design)" if same else ""))
         return Result(True, "\n".join(lines))
 
     # ------------------------------------------------------------ inspect

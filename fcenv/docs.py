@@ -171,5 +171,6 @@ with something attached. Grid values are along the edges.""",
     "saves": """\
 undo and redo step through your changes. save stores the current design
 under a name; load brings one back (and can itself be undone); list_saves
-lists them. submit ends the session: only call it when you're done.""",
+lists them. load("start") goes back to the level as given, to start over.
+submit ends the session: only call it when you're done.""",
 }

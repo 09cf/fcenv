@@ -138,7 +138,8 @@ world, since Box2D freezes it there and it never returns.
 ## Sessions and tools
 
 `session.Session(level_xml)` is one play session. It keeps every design
-version (undo/redo move between them), named saves, the latest run, and a
+version (undo/redo move between them), named saves (`start`, the level as
+given, is always there), the latest run, and a
 log entry per tool call (`log_jsonl()`), for recreating the whole session.
 `submit()` evaluates the design and ends the session. `max_tool_calls` caps
 the number of calls.
@@ -155,6 +156,9 @@ plus PNG images for `view` and the run images.
 - `build` takes a list of pieces, `{"rod": "wood", "a": ..., "b": ...}` or
   `{"wheel": "cw", "center": ...}`, so a whole machine can go in with one
   call.
+- `delete` takes a list of pieces (all or none), and `load("start")` resets:
+  both were one call per piece before, and an agent spent 36 calls
+  clearing designs.
 - Build tools return one line (what changed, with the new joint names), not
   images; `describe` and `view` show the design.
 - Tools: add_rod, add_wheel, build, delete, rewire, move_joint,

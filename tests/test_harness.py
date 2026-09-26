@@ -123,7 +123,7 @@ class TestHarness(unittest.TestCase):
                                    {"rod": "water", "a": "@0:1", "b": [60, 40]}]})],
             [("add_wheel", {"spin": "cw", "center": "1:1"}), ("save", {"name": "a"})],
             [("move_joint", {"joint": "2:1", "to": [80, 40]}), ("undo", {}), ("redo", {})],
-            [("delete", {"block": 3}), ("load", {"name": "a"}), ("run", {"timeout": 20})],
+            [("delete", {"blocks": [3]}), ("load", {"name": "a"}), ("run", {"timeout": 20})],
             [("submit", {})]])
         log = [json.loads(s) for s in (out / "tools.jsonl").read_text().splitlines()]
         versions = [json.loads(s) for s in (out / "versions.jsonl").read_text().splitlines()]
@@ -137,7 +137,7 @@ class TestHarness(unittest.TestCase):
         self.assertEqual([e["version_after"] for e in log], [1, 2, 2, 3, 2, 3, 4, 5, 5, 5])
 
     def test_errors_are_marked(self):
-        r, out, client = play([[("delete", {"block": 0}), ("nope", {})], [("submit", {})]])
+        r, out, client = play([[("delete", {"blocks": [0]}), ("nope", {})], [("submit", {})]])
         results = client.requests[1]["messages"][2]["content"]
         self.assertEqual([b["is_error"] for b in results], [True, True])
 
