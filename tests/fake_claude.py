@@ -69,7 +69,8 @@ async def main(argv):
                 emit({"type": "assistant", "message": {"id": mid, "content": [u]}})
             usage += step
             emit({"type": "rate_limit_event", "rate_limit_info": {
-                "status": "allowed", "unifiedWindows": {
+                "status": "allowed_warning" if usage >= 0.9 else "allowed",
+                "unifiedWindows": {
                     "five_hour": {"utilization": round(usage, 4)},
                     "seven_day": {"utilization": 0.3}}}})
             save()

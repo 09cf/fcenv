@@ -95,6 +95,11 @@ class TestClaudeCode(unittest.TestCase):
         self.assertLess(r["tool_calls"], 3)
         self.assertFalse(r["submitted_by_agent"])
 
+    def test_the_90_percent_warning_is_not_a_limit(self):
+        r, _, _ = play([[[["describe", {}]], [["describe", {}]], [["submit", {}]]]],
+                       usage=(0.88, 0.01), max_usage=1.0)
+        self.assertEqual((r["stop"], r["plan_usage"]["five_hour"]), ("submitted", [0.89, 0.91]))
+
     def test_level_usage_limit(self):
         nb = Notebook()
         r, _, args = play([[[["describe", {}]]] * 6, [[["write_notes", {"text": "x"}]], "ok"]],

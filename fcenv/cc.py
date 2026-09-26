@@ -117,7 +117,9 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
                 if w in windows:
                     st["windows"].setdefault(w, [windows[w]["utilization"]] * 2)[1] = \
                         windows[w]["utilization"]
-            if info.get("status", "allowed") != "allowed" or over(windows):
+            # "allowed_warning" (from 90% full) is still allowed
+            if info.get("status", "allowed") not in ("allowed", "allowed_warning") \
+                    or over(windows):
                 st["over_usage"] = True
             if max_level_usage is not None and any(
                     b - a >= max_level_usage - 1e-9 for a, b in st["windows"].values()):
