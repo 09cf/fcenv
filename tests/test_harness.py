@@ -258,6 +258,15 @@ class TestHarness(unittest.TestCase):
         self.assertEqual((summary["levels"][0]["stop"], summary["levels"][0]["turns"]),
                          ("budget", 2))
 
+    def test_level_budget(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "lvl.xml").write_text(LEVEL)
+        client = FakeClient([[("describe", {})]] * 3 + [[("submit", {})]])
+        summary = harness.run_series([d / "lvl.xml"] * 2, d / "out", level_budget=0.0003,
+                                     client=client, model="claude-opus-5", log=lambda m: None)
+        self.assertEqual([(r["stop"], r["turns"]) for r in summary["levels"]],
+                         [("level_budget", 2), ("submitted", 2)])
+
     def test_request_parameters(self):
         _, _, client = play([[("submit", {})]], effort="high", model="m")
         p = client.requests[0]

@@ -12,10 +12,12 @@ phase. Claude Code gets our prompt with an empty system prompt, no built-in
 tools, no settings files and an empty working directory: only our tools.
 
 Limits: wall clock per level (--max-minutes; the notes phase gets
---notes-minutes more), and plan usage (--max-usage): Claude Code reports
-how much of the 5-hour and 7-day windows is used, and a level stops, and
-the series with it, once either passes the limit. result.json has
-plan_usage (each window before and after the level) instead of a cost.
+--notes-minutes more), and plan usage: Claude Code reports how much of the
+5-hour and 7-day windows is used. A level stops once it has used
+--max-level-usage of either window itself (its notes phase still runs, and
+the series goes on), and everything stops once either window passes
+--max-usage. result.json has plan_usage (each window before and after the
+level) instead of a cost.
 
 Output per level, as with the API harness, plus cc/: Claude Code's event
 stream (stream.jsonl, images left out), stderr and the MCP config.
@@ -62,7 +64,7 @@ def _tool_result(b):
 
 def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=None,
          level=None, levels_total=None, max_minutes=30.0, notes_minutes=5.0,
-         max_usage=0.8, max_nudges=2, claude="claude", log=print):
+         max_usage=0.8, max_level_usage=0.1, max_nudges=2, claude="claude", log=print):
     """Play one level through Claude Code into directory `out`; returns the
     result dict (also written to result.json). `claude` is the command (a
     string, or a list for a command with arguments)."""
@@ -76,7 +78,8 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
            if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}  # the subscription
     sid = str(uuid.uuid4())
     st = {"model": None, "turns": 0, "usage": {}, "cc_cost": 0.0, "windows": {},
-          "error": None, "over_usage": False}
+          "error": None, "over_usage": False, "level_over": False, "partial": False,
+          "msgs": {}, "got_result": False}
     assistant = []  # content of each assistant message (= turn), for linking calls
 
     def over(windows):
@@ -90,6 +93,8 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
             st["model"] = st["model"] or e.get("model")
         elif kind == "assistant":
             msg = e["message"]
+            if msg.get("usage"):
+                st["msgs"][msg.get("id")] = msg["usage"]  # in case no result comes
             if pending is None or pending["id"] != msg.get("id"):
                 flush(pending)
                 pending = {"id": msg.get("id"), "content": [], "usage": msg.get("usage")}
@@ -114,9 +119,13 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
                         windows[w]["utilization"]
             if info.get("status", "allowed") != "allowed" or over(windows):
                 st["over_usage"] = True
+            if max_level_usage is not None and any(
+                    b - a >= max_level_usage - 1e-9 for a, b in st["windows"].values()):
+                st["level_over"] = True
         elif kind == "result":
             flush(pending)
             pending = None
+            st["got_result"] = True
             for k, v in (e.get("usage") or {}).items():
                 if isinstance(v, (int, float)):
                     st["usage"][k] = st["usage"].get(k, 0) + v
@@ -134,10 +143,12 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
         log(f"turn {st['turns']}: {', '.join(calls) or 'no tool calls'}")
         record.message("assistant", pending["content"], usage=pending["usage"])
 
-    def invoke(message, first, seconds):
+    def invoke(message, first, seconds, level_limit=True):
         """One claude run: `message` as the new user turn. Returns whether it
-        was stopped (time or usage)."""
+        was stopped (time or usage; the level's own usage limit only if
+        `level_limit`)."""
         record.message("user", [{"type": "text", "text": message}])
+        st["msgs"], st["got_result"] = {}, False
         args = ([claude] if isinstance(claude, str) else list(claude)) + [
                 "-p", message, "--system-prompt", "", "--setting-sources", "",
                 "--mcp-config", str(out / "cc" / "mcp.json"), "--strict-mcp-config",
@@ -170,12 +181,19 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
                 stream_file.write(json.dumps(_strip_images(e)) + "\n")
                 stream_file.flush()
                 pending = event(e, pending)
-            if (time.time() > deadline or st["over_usage"]) and stopped is None:
+            limited = st["over_usage"] or (level_limit and st["level_over"])
+            if (time.time() > deadline or limited) and stopped is None:
                 proc.terminate()
                 stopped = time.time()
             elif stopped is not None and time.time() > stopped + 10:
                 proc.kill()
         flush(pending)
+        if not st["got_result"]:  # killed: count what the messages reported
+            st["partial"] = True
+            for u in st["msgs"].values():
+                for k, v in u.items():
+                    if isinstance(v, (int, float)):
+                        st["usage"][k] = st["usage"].get(k, 0) + v
         if proc.wait() and stopped is None and not st["error"]:
             stderr_file.flush()
             tail = (out / "cc" / "stderr.txt").read_text().strip().splitlines()[-3:]
@@ -198,6 +216,8 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
                     stop = "submitted"
                 elif st["over_usage"]:
                     stop = "usage_limit"
+                elif st["level_over"]:
+                    stop = "level_usage"
                 elif stopped or time.time() >= deadline:
                     stop = "time_limit"
                 elif st["error"]:
@@ -216,10 +236,10 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
             if notebook is not None and stop not in ("usage_limit", "error"):
                 first = len(session.log)
                 invoke(_REFLECT.format(outcome=_outcome(stop, session.final)), False,
-                       notes_minutes * 60)
+                       notes_minutes * 60, level_limit=False)
                 if not st["over_usage"] and not any(
                         e["tool"] == "write_notes" and e["ok"] for e in session.log[first:]):
-                    invoke(_UNCHANGED, False, notes_minutes * 60)
+                    invoke(_UNCHANGED, False, notes_minutes * 60, level_limit=False)
         finally:
             record.close()
             stream_file.close()
@@ -235,7 +255,7 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
                 "stop": stop, "submitted_by_agent": submitted,
                 "max_tool_calls": max_tool_calls, "turns": turns or st["turns"],
                 "nudges": nudges, "notes_turns": st["turns"] - (turns or st["turns"]),
-                "usage": st["usage"], "cost": None,
+                "usage": st["usage"], "usage_partial": st["partial"], "cost": None,
                 "cc_cost_estimate": round(st["cc_cost"], 4),
                 "plan_usage": {w: v for w, v in st["windows"].items()},
                 "error": st["error"], "seconds": round(time.time() - start, 1)})
@@ -267,7 +287,10 @@ def main(argv=None):
     p.add_argument("--max-minutes", type=float, default=30.0, help="per level")
     p.add_argument("--notes-minutes", type=float, default=5.0, help="per notes phase")
     p.add_argument("--max-usage", type=float, default=0.8,
-                   help="stop once the 5-hour or 7-day window is this full (0-1)")
+                   help="stop everything once the 5-hour or 7-day window is this full (0-1)")
+    p.add_argument("--max-level-usage", type=float, default=0.1,
+                   help="stop a level once it has used this much of either window "
+                        "(0-1; its notes phase still runs)")
     p.add_argument("--max-tool-calls", type=int, help="per level; none by default")
     p.add_argument("--notes", action="store_true", help="keep a notebook across levels")
     p.add_argument("--notes-from", metavar="FILE", help="start the notebook from FILE; "
@@ -281,7 +304,8 @@ def main(argv=None):
     summary = run_series(a.levels, a.out, notebook=notebook, player=play, model=a.model,
                          effort=a.effort, max_tool_calls=a.max_tool_calls,
                          max_minutes=a.max_minutes, notes_minutes=a.notes_minutes,
-                         max_usage=a.max_usage, log=lambda m: print(m, file=sys.stderr))
+                         max_usage=a.max_usage, max_level_usage=a.max_level_usage,
+                         log=lambda m: print(m, file=sys.stderr))
     print(f"{summary['solved']}/{summary['played']} solved")
     return 0
 

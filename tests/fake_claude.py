@@ -8,7 +8,8 @@ The script (JSON, path in $FAKE_CLAUDE_SCRIPT) is {"runs": [...], "usage":
 each a list of turns: a list of [tool, args] calls, or a string (a text
 reply, which ends the run). "sleep" as a turn waits (for time limits).
 Each assistant message is followed by a rate_limit_event whose five_hour
-utilization grows by `step`.
+utilization grows by `step`, then a pause of "delay" seconds (as a real
+turn takes time; lets the driver act on the event before the calls run).
 """
 
 import asyncio
@@ -37,6 +38,12 @@ async def main(argv):
         "mcpServers"]["fc"]["url"]
     turns = runs[state["run"]] if state["run"] < len(runs) else ["done"]
     state["run"] += 1
+
+    def save():  # as it goes: the driver may kill this run
+        script["usage"] = [usage, step]
+        script_path.write_text(json.dumps(script))
+        state_path.write_text(json.dumps(state))
+    save()
     emit({"type": "system", "subtype": "init", "model": "fake-model", "session_id": "s"})
     async with Client(url) as client:
         for turn in turns:
@@ -65,6 +72,8 @@ async def main(argv):
                 "status": "allowed", "unifiedWindows": {
                     "five_hour": {"utilization": round(usage, 4)},
                     "seven_day": {"utilization": 0.3}}}})
+            save()
+            time.sleep(script.get("delay", 0))
             results = []
             for u in uses:
                 r = await client.call_tool(u["name"].removeprefix("mcp__fc__"), u["input"])
@@ -78,9 +87,7 @@ async def main(argv):
                 results.append({"type": "tool_result", "tool_use_id": u["id"],
                                 "content": content, "is_error": r.is_error})
             emit({"type": "user", "message": {"role": "user", "content": results}})
-    script["usage"] = [usage, step]
-    script_path.write_text(json.dumps(script))
-    state_path.write_text(json.dumps(state))
+    save()
     emit({"type": "result", "subtype": "success", "is_error": False,
           "usage": {"input_tokens": 10, "output_tokens": 5}, "total_cost_usd": 0.01})
 

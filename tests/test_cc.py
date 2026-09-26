@@ -16,10 +16,10 @@ from tests.test_edit import LEVEL  # noqa: E402
 FAKE = [sys.executable, str(Path(__file__).resolve().parent / "fake_claude.py")]
 
 
-def play(runs, usage=(0.1, 0.0), **kw):
+def play(runs, usage=(0.1, 0.0), delay=0, **kw):
     d = Path(tempfile.mkdtemp())
     script = d / "script.json"
-    script.write_text(json.dumps({"runs": runs, "usage": list(usage)}))
+    script.write_text(json.dumps({"runs": runs, "usage": list(usage), "delay": delay}))
     import os
     os.environ["FAKE_CLAUDE_SCRIPT"] = str(script)
     r = cc.play(LEVEL, d / "out", claude=FAKE, log=lambda m: None, **kw)
@@ -36,7 +36,7 @@ class TestClaudeCode(unittest.TestCase):
         r, out, args = play([[
             [["describe", {}], ["view", {}]],
             [["add_rod", {"kind": "wood", "a": "0:1", "b": [80, -20]}]],
-            [["submit", {}]]]], usage=(0.1, 0.05))
+            [["submit", {}]]]], usage=(0.1, 0.05), max_level_usage=None)
         self.assertEqual((r["stop"], r["runner"], r["model"]), ("submitted", "claude-code",
                                                                 "fake-model"))
         self.assertEqual((r["tool_calls"], r["turns"], r["nudges"]), (4, 3, 0))
@@ -90,10 +90,21 @@ class TestClaudeCode(unittest.TestCase):
 
     def test_usage_limit(self):
         r, _, args = play([[[["describe", {}]], [["describe", {}]], [["submit", {}]]]],
-                          usage=(0.75, 0.04), max_usage=0.8)
+                          usage=(0.75, 0.04), delay=1, max_usage=0.8)
         self.assertEqual(r["stop"], "usage_limit")
         self.assertLess(r["tool_calls"], 3)
         self.assertFalse(r["submitted_by_agent"])
+
+    def test_level_usage_limit(self):
+        nb = Notebook()
+        r, _, args = play([[[["describe", {}]]] * 6, [[["write_notes", {"text": "x"}]], "ok"]],
+                          usage=(0.1, 0.04), delay=1, max_level_usage=0.1, notebook=nb)
+        # first seen 0.14, then 0.18, 0.22, 0.26: stopped at the 4th turn's report,
+        # before its call
+        self.assertEqual((r["stop"], r["tool_calls"]), ("level_usage", 3))
+        self.assertEqual(nb.text, "x")  # the notes phase still ran
+        self.assertIn("used up its share", args[1][args[1].index("-p") + 1])
+        self.assertTrue(r["usage_partial"])  # killed: no result event
 
     def test_time_limit(self):
         r, _, _ = play([[[["describe", {}]], "sleep", [["submit", {}]]]], max_minutes=0.05)
