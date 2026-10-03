@@ -21,8 +21,7 @@ def task_prompt(session, level=None, levels=None):
     if session.budget is not None and session.budget.shown:
         budget = """\
 This level has a budget for your work, spent by thinking, writing and
-reading: every turn re-reads the conversation so far, so later turns cost
-more than early ones. Each tool result ends with how much of it is used. If
+reading. Each tool result ends with how much of it is used. If
 it runs out, the level ends and your design is evaluated as it is.
 
 """
