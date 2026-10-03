@@ -102,6 +102,9 @@ void b2World_DestroyJoint(b2World *world, b2Joint *joint);
 
 void b2World_Step(b2World *world, float64 timeStep, int32 iterations);
 
+/* fccore: broad-phase pairs dropped because the pair table was full. */
+int32 b2World_GetPairOverflow(b2World *world);
+
 // Process the deferred body destruction list (m_bodyDestroyList). Bodies
 // passed to b2World_DestroyBody are queued rather than destroyed immediately
 // so that callers can safely iterate the contact list. Call this before

@@ -256,6 +256,10 @@ void b2World_DestroyJoint(b2World *world, b2Joint *j) {
   }
 }
 
+int32 b2World_GetPairOverflow(b2World *world) {
+  return world->m_broadPhase->m_pairManager.m_overflow;
+}
+
 void b2World_Step(b2World *world, float64 dt, int32 iterations) {
   b2TimeStep step;
   step.dt = dt;

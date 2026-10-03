@@ -264,6 +264,18 @@ class TestLegality(unittest.TestCase):
         with fccore.Sim(design([GOAL, a], [FLOOR])) as sim:
             self.assertEqual(sim.overlaps(), [])
 
+    def test_too_many_overlapping_pieces_dont_crash(self):
+        # the broad phase holds 32768 pairs (as in the original game): 256
+        # coincident rods are 32640 pairs among themselves, plus their pairs
+        # with the goal; fcsim's port overran the table and crashed
+        def stacked(n):
+            return [block("HollowRod", 50, -20, 60, 4, bid=i) for i in range(1, n + 1)]
+        with fccore.Sim(design([GOAL] + stacked(250))) as sim:
+            self.assertEqual(sim.overflow(), 0)
+        with fccore.Sim(design([GOAL] + stacked(300))) as sim:
+            self.assertGreater(sim.overflow(), 0)
+            sim.step(30)  # and it still simulates
+
     def test_check_does_not_disturb_simulation(self):
         for xml in sample_designs():
             with fccore.Sim(xml) as a, fccore.Sim(xml) as b:

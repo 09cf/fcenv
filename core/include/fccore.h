@@ -190,6 +190,14 @@ FCCORE_API int32_t fc_sim_check_legal(const fc_sim *sim, int32_t *flags);
  * returns the total number. Blocks sharing a joint never touch. */
 FCCORE_API int32_t fc_sim_overlaps(const fc_sim *sim, int32_t *pairs, int32_t max_pairs);
 
+/* How many broad-phase pairs (pieces with overlapping bounding boxes) the
+ * physics engine has had to drop since the simulation was created, because
+ * its fixed table (32768 pairs, as in the original game) was full. 0 for
+ * any design the original game can run: when it isn't, the original fails
+ * (Flash throws; fcsim crashes) and fccore drops the pairs instead, so
+ * their collisions are missing. */
+FCCORE_API int32_t fc_sim_overflow(const fc_sim *sim);
+
 /* Serialise the parsed design (tick-0 state) as saveDesign XML. The result is
  * malloc'd; release it with fc_free. */
 FCCORE_API char *fc_sim_export_xml(fc_sim *sim, const char *user, const char *name,

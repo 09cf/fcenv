@@ -112,6 +112,7 @@ _sig("fc_sim_solve_tick", C.c_int64, _P)
 _sig("fc_sim_goal_reached", C.c_int32, _P)
 _sig("fc_sim_check_legal", C.c_int32, _P, C.POINTER(C.c_int32))
 _sig("fc_sim_overlaps", C.c_int32, _P, C.POINTER(C.c_int32), C.c_int32)
+_sig("fc_sim_overflow", C.c_int32, _P)
 _sig("fc_sim_export_xml", C.c_void_p, _P, C.c_char_p, C.c_char_p, C.c_char_p)
 _sig("fc_free", None, _P)
 
@@ -247,6 +248,12 @@ class Sim:
         flags = (C.c_int32 * max(self.n_design_blocks, 1))()
         legal = _lib.fc_sim_check_legal(self._h, flags)
         return Legality(bool(legal), list(flags[: self.n_design_blocks]))
+
+    def overflow(self):
+        """Broad-phase pairs dropped so far because the engine's pair table
+        (32768, as in the original game) was full: 0 for any design the
+        original can run."""
+        return _lib.fc_sim_overflow(self._h)
 
     def overlaps(self):
         """Pairs (i, j), i < j, of blocks touching at tick 0 (the overlaps

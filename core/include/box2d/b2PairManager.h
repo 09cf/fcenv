@@ -115,6 +115,11 @@ struct b2PairManager {
   b2BufferedPair m_pairBuffer[b2_maxPairs];
   int32 m_pairBufferCount;
 
+  /* Pairs dropped because the pair pool or the pair buffer was full
+   * (fccore addition: the original reads past the end and crashes; Flash
+   * throws). Collisions for dropped pairs are missing. */
+  int32 m_overflow;
+
   uint16 m_hashTable[b2_tableCapacity];
 };
 

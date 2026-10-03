@@ -122,7 +122,11 @@ Rules (a build call that breaks one is rejected and changes nothing):
 - two pieces can share at most one joint (so a rod can't join two joints of
   the same piece);
 - rods must be at least 1 long; at most 300 pieces in total, goal pieces
-  included.
+  included;
+- not too many pieces piled in one spot (e.g. a few hundred rods on one
+  joint): the physics engine can only track so many overlapping pieces. A
+  run where pieces pile up past that limit stops there, unsolved, as the
+  original game breaks.
 
 Positions: [x, y]; or relative to a joint: {"from": "3:1", "offset": [dx, dy]},
 or {"from": "3:1", "length": L, "angle": A} (A in degrees: 0 right, 90 down).

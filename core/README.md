@@ -132,6 +132,13 @@ constructor (`../decomp/scripts/contraption/blocks/`):
   only checks the pieces being dragged.
   `fc_sim_overlaps` (`sim.overlaps()`) gives the overlapping pairs
   themselves, for saying what hits what.
+- **Broad-phase overflow** (`fc_sim_overflow`, `sim.overflow()`): Box2D's
+  pair table holds 32768 pairs of bounding boxes that overlap, as in the
+  original game, and fcsim's port didn't check: 257 rods stacked on one
+  joint (32640 pairs among themselves, plus the rest) overran it and
+  crashed. fccore drops the extra pairs and counts them instead; the
+  original fails at that point too (Flash throws), so fcenv rejects edits
+  that overflow and ends runs where it happens.
 
 ## Agreement with the original game
 

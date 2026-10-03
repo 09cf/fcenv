@@ -75,6 +75,7 @@ class ErrorCode(Enum):
     OVERLAP = "overlap"  # also: two wheels on one joint (see _invariants)
     OUTSIDE_BUILD_AREA = "outside_build_area"
     UNREPRESENTABLE = "unrepresentable"  # XML can't express this unambiguously
+    TOO_CROWDED = "too_crowded"  # more overlapping pieces than the engine can track
 
 
 @dataclass(frozen=True)
@@ -415,6 +416,14 @@ def _commit(st, design, graph, changed, old_index, first_choice, info, names=Non
                     "(two joints of connected blocks at the same point?)",
                     sorted(design.ids[i] for i in changed))
     xml, got = found
+    if got.overflow:
+        raise _Fail(ErrorCode.TOO_CROWDED,
+                    "too many pieces overlapping at once: the physics engine (as in the "
+                    "original game) can track at most 32768 pairs of pieces whose bounding "
+                    "boxes overlap, including pieces sharing a joint, and this would need "
+                    f"{got.overflow} more. Fewer pieces in one spot (e.g. fewer rods "
+                    "stacked on one joint) fixes it",
+                    sorted(design.ids[i] for i in changed))
     overlapping, outside = set(), set()
     for i, flags in enumerate(got.flags):
         if got.types[i] in GOAL_TYPES:

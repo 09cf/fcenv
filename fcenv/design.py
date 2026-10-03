@@ -207,6 +207,7 @@ class Graph:
     slots: list  # per player block: its number of joint slots
     types: list  # per player block: fccore type id
     flags: list  # per player block: fccore ILLEGAL_* flags
+    overflow: int = 0  # broad-phase pairs dropped at import (fccore Sim.overflow)
 
     def stack_of(self, ref):
         for s in self.stacks:
@@ -239,7 +240,8 @@ def read_graph(xml):
             att = [JointRef(b, own[b]) for b in j.att]
             stacks.append(Stack(j.x, j.y, gen, att))
         flags = sim.check_legal().flags
-        return Graph(stacks, slots, [blocks[i].type_id for i in range(n)], list(flags))
+        return Graph(stacks, slots, [blocks[i].type_id for i in range(n)], list(flags),
+                     sim.overflow())
 
 
 def copy_graph(g):

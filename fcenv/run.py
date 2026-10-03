@@ -37,7 +37,7 @@ class Run:
     ticks: int  # ticks simulated; states cover ticks 0..ticks
     states: np.ndarray  # (ticks + 1, blocks, 3) float32: x, y, angle
     solve_tick: int  # None if not solved
-    end: str  # "solved", "timeout" or "goal piece left the world"
+    end: str  # "solved", "timeout", "goal piece left the world" or "overflow"
     left_level: int = None  # ID of the goal piece that left, if any
     breaks: list = field(default_factory=list)  # (tick, block ID, block ID, x, y)
     _scene: object = None
@@ -58,6 +58,10 @@ class Run:
             lines.append(f"Solved at tick {self.solve_tick} ({secs(self.solve_tick)}).")
         elif self.end == "timeout":
             lines.append(f"Not solved: ran the full {self.ticks} ticks ({secs(self.ticks)}).")
+        elif self.end == "overflow":
+            lines.append(f"Stopped at tick {self.ticks} ({secs(self.ticks)}): too many pieces "
+                         "overlapping at once for the physics engine (the original game "
+                         "breaks here), so the run ends there.")
         else:
             lines.append(f"Stopped at tick {self.ticks} ({secs(self.ticks)}): goal piece "
                          f"#{self.left_level} left the world.")
@@ -303,10 +307,18 @@ def simulate(xml, timeout=3000, until_solved=True):
         joint_pairs = [(j.block1, j.block2, j.x, j.y) for j in sim.joints()]
         breaks, end, left = [], "timeout", None
         t = 0
-        while t < timeout:
+        # too many overlapping pieces for the engine's pair table: the
+        # original game breaks there, so the run ends (fccore drops the
+        # pairs instead of crashing)
+        if sim.overflow():
+            end = "overflow"
+        while t < timeout and end != "overflow":
             fccore._lib.fc_sim_record(sim._h, 1, 1, idx, n, buf_ptr)
             t += 1
             states[t] = buf[:, :3]
+            if sim.overflow():
+                end = "overflow"
+                break
             if fccore._lib.fc_sim_get_joints(sim._h, None, 0) != len(joint_pairs):
                 now = [(j.block1, j.block2, j.x, j.y) for j in sim.joints()]
                 alive = {(a, b) for a, b, _, _ in now}
@@ -324,7 +336,10 @@ def simulate(xml, timeout=3000, until_solved=True):
                     break
             if left is not None:
                 break
-        run = Run(xml, t, states[:t + 1].copy(), sim.solve_tick, end, left, breaks,
+        solve_tick = sim.solve_tick
+        if end == "overflow" and solve_tick is not None and solve_tick >= t:
+            solve_tick = None  # not in the tick the game broke
+        run = Run(xml, t, states[:t + 1].copy(), solve_tick, end, left, breaks,
                   scene, frame)
     run._goals = goals
     return run

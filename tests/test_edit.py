@@ -348,6 +348,24 @@ class TestBatch(unittest.TestCase):
         err(edit.build(LEVEL, [Wheel("cw", (100, 100)), Wheel("cw", (-100, 100))],
                        Rules(max_design_blocks=2)), ErrorCode.PIECE_LIMIT)
 
+    def test_too_crowded(self):
+        # 256 rods on one joint: more overlapping pairs than the engine holds
+        e = err(edit.add_rod(LEVEL, "water", JointRef(GOAL, 1), (60, -20), count=256),
+                ErrorCode.TOO_CROWDED)
+        self.assertIn("at most 32768 pairs", e.message)
+        ok(edit.add_rod(LEVEL, "water", JointRef(GOAL, 1), (60, -20), count=200))
+
+    def test_overflowing_runs_end(self):
+        from fcenv import run
+
+        # 255 stacked rods load, but overflow once they fall about
+        x = ok(edit.add_rod(LEVEL, "water", JointRef(GOAL, 1), (60, -20), count=255)).xml
+        r = run.simulate(x, timeout=300)
+        self.assertEqual(r.end, "overflow")
+        self.assertLess(r.ticks, 300)
+        self.assertIsNone(r.solve_tick)
+        self.assertIn("too many pieces overlapping at once", r.summary())
+
     def test_batch_piece_limit(self):
         err(edit.add_rod(LEVEL, "water", (60, 60), (120, 60), Rules(max_design_blocks=3),
                          count=3), ErrorCode.PIECE_LIMIT)

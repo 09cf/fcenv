@@ -50,6 +50,7 @@ void b2PairManager_ctor(b2PairManager *manager) {
   }
   manager->m_pairs[b2_maxPairs - 1].next = b2_nullPair;
   manager->m_pairCount = 0;
+  manager->m_overflow = 0;
 
   manager->m_pairBufferCount = 0;
 }
@@ -100,6 +101,10 @@ static b2Pair *b2PairManager_AddPair(b2PairManager *manager, int32 proxyId1,
   }
 
   uint16 pairIndex = manager->m_freePair;
+  if (pairIndex == b2_nullPair) { /* the pool is full */
+    ++manager->m_overflow;
+    return NULL;
+  }
   pair = manager->m_pairs + pairIndex;
   manager->m_freePair = pair->next;
 
@@ -173,9 +178,15 @@ RemovePair was called).
 void b2PairManager_AddBufferedPair(b2PairManager *manager, int32 id1,
                                    int32 id2) {
   b2Pair *pair = b2PairManager_AddPair(manager, id1, id2);
+  if (pair == NULL)
+    return;
 
   // If this pair is not in the pair buffer ...
   if (b2Pair_IsBuffered(pair) == false) {
+    if (manager->m_pairBufferCount >= b2_maxPairs) { /* the buffer is full */
+      ++manager->m_overflow;
+      return;
+    }
     // Add it to the pair buffer.
     b2Pair_SetBuffered(pair);
     manager->m_pairBuffer[manager->m_pairBufferCount].proxyId1 = pair->proxyId1;
@@ -199,6 +210,10 @@ void b2PairManager_RemoveBufferedPair(b2PairManager *manager, int32 id1,
 
   // If this pair is not in the pair buffer ...
   if (b2Pair_IsBuffered(pair) == false) {
+    if (manager->m_pairBufferCount >= b2_maxPairs) { /* the buffer is full */
+      ++manager->m_overflow;
+      return;
+    }
     b2Pair_SetBuffered(pair);
     manager->m_pairBuffer[manager->m_pairBufferCount].proxyId1 = pair->proxyId1;
     manager->m_pairBuffer[manager->m_pairBufferCount].proxyId2 = pair->proxyId2;

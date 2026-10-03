@@ -600,6 +600,10 @@ static void add_pair(void *ctx, int32_t i1, int32_t i2) {
   c->n++;
 }
 
+int32_t fc_sim_overflow(const fc_sim *sim) {
+  return b2World_GetPairOverflow(sim->world);
+}
+
 int32_t fc_sim_overlaps(const fc_sim *sim, int32_t *pairs, int32_t max_pairs) {
   struct pairs_ctx c = {pairs, pairs ? max_pairs : 0, 0};
   initial_contacts(sim, add_pair, &c);
