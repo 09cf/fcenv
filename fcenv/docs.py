@@ -22,7 +22,10 @@ def task_prompt(session, level=None, levels=None):
         budget = """\
 This level has a budget for your work, spent by thinking, writing and
 reading. Each tool result ends with how much of it is used. If
-it runs out, the level ends and your design is evaluated as it is.
+it runs out, the level ends and your design is evaluated as it is. An
+unsolved design scores nothing whether you submit it or not, so there's no
+reason to submit one early: keep trying until it's solved or the budget runs
+out.
 
 """
     nb = session.notebook

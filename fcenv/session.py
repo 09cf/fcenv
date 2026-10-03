@@ -56,7 +56,8 @@ class Budget:
                      else "; less than one more turn at the current rate")
         text += "]"
         if used >= 0.9:
-            text += " When it runs out, the level ends and your design is evaluated as it is."
+            text += (" When it runs out, the level ends and your design is evaluated as it is"
+                     " (an unsolved one scores nothing either way, so keep trying).")
         return text
 
 
@@ -160,7 +161,8 @@ class Session:
                     parts.append(f"{kind} #{b} (centre {self._joints_text(js[:1])})")
             return "Added " + "; ".join(parts) + "."
         return self._commit(edit.build(self.xml, pieces, self.rules), text,
-                            "Nothing was built: a build call is all or none.")
+                            "Nothing was built." if len(pieces) == 1
+                            else "Nothing was built: the call is all or none.")
 
     def delete(self, blocks):
         """Delete pieces (block IDs), all or none."""

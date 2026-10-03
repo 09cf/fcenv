@@ -105,7 +105,9 @@ class TestTools(unittest.TestCase):
     def test_rejections_say_nothing_changed_and_reruns_are_noted(self):
         s = Session(LEVEL)
         ok, text, _ = call(s, "build", pieces=[{"rod": "wood", "a": [-50, 0], "b": [50, 0]}])
-        self.assertTrue(text.endswith("Nothing was built: a build call is all or none."), text)
+        self.assertTrue(text.endswith("Nothing was built."), text)
+        ok, text, _ = call(s, "build", pieces=[{"rod": "wood", "a": [-50, 0], "b": [50, 0]}] * 2)
+        self.assertTrue(text.endswith("Nothing was built: the call is all or none."), text)
         call(s, "add_rod", kind="wood", a=[60, 60], b=[120, 60])
         ok, text, _ = call(s, "move_joint", joint="1:0", to=[0, 0])  # into the goal rect
         self.assertTrue(text.endswith(". Nothing changed."), text)

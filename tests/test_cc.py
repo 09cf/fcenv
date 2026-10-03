@@ -128,7 +128,8 @@ class TestClaudeCode(unittest.TestCase):
                                  "[Budget: 60% of this level's used]",
                                  "[Budget: 90% of this level's used; less than one more turn at "
                                  "the current rate] When it runs out, the level ends and your "
-                                 "design is evaluated as it is."])
+                                 "design is evaluated as it is (an unsolved one scores nothing "
+                                 "either way, so keep trying)."])
         # hidden: the same limit, but nothing shown
         r, out, args = play([[[["describe", {}]]] * 6], delay=1, model="claude-opus-5-5",
                             level_budget=0.02, show_budget=False)
