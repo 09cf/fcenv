@@ -275,7 +275,7 @@ the loop, e.g. on a Claude subscription instead of API credits (needs
 ```
 python3 -m fcenv.cc LEVEL.xml [LEVEL.xml ...] --out runs/cc1 [--model M]
     [--effort E] [--level-budget 3] [--hide-budget] [--max-minutes 30]
-    [--max-usage 0.8] [--max-level-usage 0.3]
+    [--max-usage 0.8] [--max-level-usage 0.3] [--across-windows]
     [--notes | --notes-from NOTES.md]
 ```
 
@@ -296,7 +296,14 @@ python3 -m fcenv.cc LEVEL.xml [LEVEL.xml ...] --out runs/cc1 [--model M]
   reports (how full the 5-hour and 7-day windows are). A level stops once
   it has used `--max-level-usage` of either window itself (stop
   `level_usage`; its notes phase still runs and the series goes on), and
-  everything stops once either window passes `--max-usage`. `plan_usage` in `result.json` has
+  everything stops once either window passes `--max-usage`.
+- A run stays in the 5-hour window it started in: when that window resets
+  (Claude Code reports when it will), the level stops and no further level
+  starts (stop `window_reset`), unless `--across-windows`.
+- `claude` runs in its own process group, and stopping it (for the wall
+  clock or a usage limit) stops the whole group: on one level Claude Code
+  hung retrying an API error, and a child process kept its output open for
+  hours after the parent was told to stop. `plan_usage` in `result.json` has
   each window before and after the level. A long level costs far more than
   its time suggests (each turn re-reads the growing context), so the usage
   limits are the ones that matter; wall clock is a backstop.

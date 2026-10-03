@@ -30,6 +30,7 @@ import argparse
 import json
 import os
 import queue
+import signal
 import subprocess
 import sys
 import threading
@@ -68,10 +69,12 @@ def _tool_result(b):
 def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=None,
          level=None, levels_total=None, max_minutes=30.0, notes_minutes=5.0,
          max_usage=0.8, max_level_usage=0.3, level_budget=None, show_budget=True,
-         max_nudges=2, claude="claude", log=print):
+         max_nudges=2, window=None, across_windows=False, claude="claude", log=print):
     """Play one level through Claude Code into directory `out`; returns the
     result dict (also written to result.json). `claude` is the command (a
-    string, or a list for a command with arguments)."""
+    string, or a list for a command with arguments). `window` (a dict shared
+    by a series' levels) remembers when the 5-hour window the series started
+    in resets: unless `across_windows`, a level stops when it does."""
     out = Path(out).resolve()  # claude runs in out/cc/work
     (out / "cc" / "work").mkdir(parents=True, exist_ok=True)
     session = Session(level_xml, max_tool_calls=max_tool_calls, notebook=notebook,
@@ -84,6 +87,7 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
     sid = str(uuid.uuid4())
     st = {"model": None, "turns": 0, "usage": {}, "cc_cost": 0.0, "windows": {},
           "error": None, "over_usage": False, "level_over": False, "budget_over": False,
+          "window_reset": False,
           "partial": False, "got_result": False,
           "live": {}, "run_live": {}, "current": None}  # exact per-message usage
     assistant = []  # content of each assistant message (= turn), for linking calls
@@ -144,6 +148,11 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
             if info.get("status", "allowed") not in ("allowed", "allowed_warning") \
                     or over(windows):
                 st["over_usage"] = True
+            resets = (windows.get("five_hour") or {}).get("resetsAt")
+            if window is not None and resets:
+                window.setdefault("resets_at", resets)
+                if resets != window["resets_at"] and not across_windows:
+                    st["window_reset"] = True  # a new 5-hour window began
             if max_level_usage is not None and any(
                     b - a >= max_level_usage - 1e-9 for a, b in st["windows"].values()):
                 st["level_over"] = True
@@ -184,9 +193,17 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
             args += ["--model", model]
         if effort:
             args += ["--effort", effort]
+        # its own process group: claude's children can hold stdout open, so
+        # stopping it means stopping all of them
         proc = subprocess.Popen(args, cwd=out / "cc" / "work", env=env, text=True,
                                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=stderr_file)
+                                stderr=stderr_file, start_new_session=True)
+
+        def signal_all(sig):
+            try:
+                os.killpg(proc.pid, sig)
+            except ProcessLookupError:
+                pass
         lines = queue.Queue()
         threading.Thread(target=lambda: ([lines.put(x) for x in proc.stdout], lines.put(None)),
                          daemon=True).start()
@@ -208,19 +225,27 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
                     stream_file.write(json.dumps(_strip_images(e)) + "\n")
                     stream_file.flush()
                 pending = event(e, pending)
-            limited = st["over_usage"] or (level_limit and (st["level_over"]
-                                                            or st["budget_over"]))
+            limited = st["over_usage"] or st["window_reset"] or (
+                level_limit and (st["level_over"] or st["budget_over"]))
             if (time.time() > deadline or limited) and stopped is None:
-                proc.terminate()
+                signal_all(signal.SIGTERM)
                 stopped = time.time()
             elif stopped is not None and time.time() > stopped + 10:
-                proc.kill()
+                signal_all(signal.SIGKILL)
+                if time.time() > stopped + 15:  # still no end of output: move on
+                    log("claude didn't exit; moving on")
+                    break
         flush(pending)
         if not st["got_result"]:  # killed: no totals, so count the messages
             st["partial"] = True
             for k, v in st["run_live"].items():
                 st["usage"][k] = st["usage"].get(k, 0) + v
-        if proc.wait() and stopped is None and not st["error"]:
+        try:
+            code = proc.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            signal_all(signal.SIGKILL)
+            code = proc.wait()
+        if code and stopped is None and not st["error"]:
             stderr_file.flush()
             tail = (out / "cc" / "stderr.txt").read_text().strip().splitlines()[-3:]
             st["error"] = f"claude exited with {proc.returncode}: " + " / ".join(tail)
@@ -242,6 +267,8 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
                     stop = "submitted"
                 elif st["over_usage"]:
                     stop = "usage_limit"
+                elif st["window_reset"]:
+                    stop = "window_reset"
                 elif st["budget_over"]:
                     stop = "level_budget"
                 elif st["level_over"]:
@@ -261,7 +288,7 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
             turns = st["turns"]
             if session.final is None:
                 session.submit()  # evaluate the current design, outside the log
-            if notebook is not None and stop not in ("usage_limit", "error"):
+            if notebook is not None and stop not in ("usage_limit", "window_reset", "error"):
                 first = len(session.log)
                 invoke(_REFLECT.format(outcome=_outcome(stop, session.final)), False,
                        notes_minutes * 60, level_limit=False)
@@ -319,6 +346,9 @@ def main(argv=None):
     p.add_argument("--notes-minutes", type=float, default=5.0, help="per notes phase")
     p.add_argument("--max-usage", type=float, default=0.8,
                    help="stop everything once the 5-hour or 7-day window is this full (0-1)")
+    p.add_argument("--across-windows", action="store_true",
+                   help="carry on when the 5-hour usage window the run started in resets "
+                        "(by default the run stops there)")
     p.add_argument("--max-level-usage", type=float, default=0.3,
                    help="hidden backstop: stop a level once it has used this much of "
                         "either window (0-1; its notes phase still runs)")
@@ -338,7 +368,14 @@ def main(argv=None):
     if a.notes or a.notes_from:
         notebook = Notebook(Path(a.notes_from).read_text() if a.notes_from else "",
                             a.notes_cap)
-    summary = run_series(a.levels, a.out, notebook=notebook, player=play, model=a.model,
+    window = {}  # the 5-hour window the run started in
+
+    def gate():
+        if (not a.across_windows and window.get("resets_at")
+                and time.time() >= window["resets_at"]):
+            return "window_reset"
+    summary = run_series(a.levels, a.out, notebook=notebook, player=play, gate=gate,
+                         window=window, across_windows=a.across_windows, model=a.model,
                          effort=a.effort, max_tool_calls=a.max_tool_calls,
                          max_minutes=a.max_minutes, notes_minutes=a.notes_minutes,
                          max_usage=a.max_usage, max_level_usage=a.max_level_usage,

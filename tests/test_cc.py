@@ -16,11 +16,12 @@ from tests.test_edit import LEVEL  # noqa: E402
 FAKE = [sys.executable, str(Path(__file__).resolve().parent / "fake_claude.py")]
 
 
-def play(runs, usage=(0.1, 0.0), delay=0, model="fake-model", **kw):
+def play(runs, usage=(0.1, 0.0), delay=0, model="fake-model", resets=(1e10,), **kw):
     d = Path(tempfile.mkdtemp())
     script = d / "script.json"
     script.write_text(json.dumps({"runs": runs, "usage": list(usage), "delay": delay,
-                                  "model": model, "msg_usage": [1000, 100]}))
+                                  "model": model, "msg_usage": [1000, 100],
+                                  "resets": list(resets)}))
     import os
     os.environ["FAKE_CLAUDE_SCRIPT"] = str(script)
     r = cc.play(LEVEL, d / "out", claude=FAKE, log=lambda m: None, **kw)
@@ -137,6 +138,24 @@ class TestClaudeCode(unittest.TestCase):
         self.assertNotIn("budget", args[0][args[0].index("-p") + 1])
         self.assertNotIn("[Budget", (out / "transcript.jsonl").read_text())
 
+    def test_a_hung_claude_is_stopped(self):
+        # a child holds stdout open: stopping claude alone never ends the output
+        import time
+        t0 = time.time()
+        r, _, _ = play([[[["describe", {}]], "hang"]], max_minutes=0.05)
+        self.assertEqual((r["stop"], r["tool_calls"]), ("time_limit", 1))
+        self.assertLess(time.time() - t0, 60)
+
+    def test_window_reset_stops_the_level(self):
+        window = {}
+        r, _, _ = play([[[["describe", {}]], [["describe", {}]], [["describe", {}]]]],
+                       delay=1, resets=(1000, 1000, 2000), window=window)
+        self.assertEqual((r["stop"], r["tool_calls"]), ("window_reset", 2))
+        self.assertEqual(window, {"resets_at": 1000})
+        r, _, _ = play([[[["describe", {}]], [["submit", {}]]]], delay=1,
+                       resets=(1000, 2000), window={}, across_windows=True)
+        self.assertEqual(r["stop"], "submitted")
+
     def test_time_limit(self):
         r, _, _ = play([[[["describe", {}]], "sleep", [["submit", {}]]]], max_minutes=0.05)
         self.assertEqual((r["stop"], r["tool_calls"]), ("time_limit", 1))
@@ -158,6 +177,27 @@ class TestClaudeCode(unittest.TestCase):
             self.assertEqual(r["error"], "claude exited with 1: no login")
         finally:
             os.chdir(cwd)
+
+    def test_series_stops_once_its_window_has_reset(self):
+        import os
+        import time
+        d = Path(tempfile.mkdtemp())
+        (d / "lvl.xml").write_text(LEVEL)
+        script = d / "script.json"
+        # the window the series starts in "resets" at t=1, long ago: the first
+        # level plays (its own reports don't change), the second doesn't start
+        script.write_text(json.dumps({"runs": [[[["submit", {}]]], [[["submit", {}]]]],
+                                      "resets": [1]}))
+        os.environ["FAKE_CLAUDE_SCRIPT"] = str(script)
+        window = {}
+
+        def gate():
+            if window.get("resets_at") and time.time() >= window["resets_at"]:
+                return "window_reset"
+        summary = harness.run_series([d / "lvl.xml"] * 2, d / "out", player=cc.play,
+                                     claude=FAKE, window=window, gate=gate,
+                                     log=lambda m: None)
+        self.assertEqual((summary["played"], window), (1, {"resets_at": 1}))
 
     def test_series(self):
         d = Path(tempfile.mkdtemp())

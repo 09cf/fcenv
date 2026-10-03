@@ -315,10 +315,12 @@ def finish(out, session, fields):
     return result
 
 
-def run_series(paths, out, notebook=None, budget=None, log=print, player=None, **kw):
+def run_series(paths, out, notebook=None, budget=None, log=print, player=None, gate=None,
+               **kw):
     """Play the level files `paths` in order into OUT/<level name>/, with
     `notebook` (if any) carrying over. Stops starting levels once `budget`
-    dollars are spent, or after a level stopped for a budget or usage limit.
+    dollars are spent, or after a level stopped for a budget or usage limit,
+    or when `gate()` gives a reason not to start the next level.
     `player` plays a level (default: play, through the API; see cc.play for
     Claude Code). Returns the summary (also written to summary.json)."""
     out = Path(out)
@@ -332,6 +334,10 @@ def run_series(paths, out, notebook=None, budget=None, log=print, player=None, *
         names.add(name)
         if budget is not None and spent >= budget:
             log(f"budget of ${budget:.2f} reached: not playing {name} or later levels")
+            break
+        reason = gate() if gate else None
+        if reason:
+            log(f"stopped ({reason}): not playing {name} or later levels")
             break
         log(f"== {name} ({k}/{len(paths)})")
         if player is None:
@@ -354,7 +360,7 @@ def run_series(paths, out, notebook=None, budget=None, log=print, player=None, *
         (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
         if notebook is not None:
             (out / "notes.md").write_text(notebook.text)
-        if r["stop"] in ("budget", "usage_limit"):
+        if r["stop"] in ("budget", "usage_limit", "window_reset"):
             log(f"stopped ({r['stop']}): not playing the rest")
             break
     return summary

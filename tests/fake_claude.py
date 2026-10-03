@@ -6,7 +6,10 @@ server and prints Claude Code-shaped events.
 The script (JSON, path in $FAKE_CLAUDE_SCRIPT) is {"runs": [...], "usage":
 [five_hour, step]}: one entry per claude run (the first, then each resume),
 each a list of turns: a list of [tool, args] calls, or a string (a text
-reply, which ends the run). "sleep" as a turn waits (for time limits).
+reply, which ends the run). "sleep" as a turn waits (for time limits);
+"hang" starts a child process that keeps stdout open, then waits, as
+Claude Code did when it hung on API retries. "resets" lists the 5-hour
+window's resetsAt per turn (the last one repeats).
 Each assistant message is followed by a rate_limit_event whose five_hour
 utilization grows by `step`, then a pause of "delay" seconds (as a real
 turn takes time; lets the driver act on the event before the calls run).
@@ -18,6 +21,7 @@ output] tokens). "model" names the model (default fake-model).
 import asyncio
 import json
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -58,6 +62,10 @@ async def main(argv):
             if turn == "sleep":
                 time.sleep(30)
                 continue
+            if turn == "hang":
+                subprocess.Popen(["sleep", "300"])  # inherits stdout
+                time.sleep(300)
+                continue
             if isinstance(turn, str):
                 emit({"type": "assistant", "message": {
                     "id": mid, "content": [{"type": "text", "text": turn}],
@@ -80,10 +88,12 @@ async def main(argv):
                 emit({"type": "stream_event", "event": {"type": "message_delta",
                                                          "usage": {"output_tokens": msg_out}}})
             usage += step
+            resets = script.get("resets", [1e10])
             emit({"type": "rate_limit_event", "rate_limit_info": {
                 "status": "allowed_warning" if usage >= 0.9 else "allowed",
                 "unifiedWindows": {
-                    "five_hour": {"utilization": round(usage, 4)},
+                    "five_hour": {"utilization": round(usage, 4),
+                                  "resetsAt": resets[min(state["n"] - 1, len(resets) - 1)]},
                     "seven_day": {"utilization": 0.3}}}})
             save()
             time.sleep(script.get("delay", 0))
