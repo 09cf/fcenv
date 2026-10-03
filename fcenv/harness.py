@@ -44,7 +44,7 @@ import time
 from pathlib import Path
 
 from . import docs, levels, readable, render, tools
-from .session import Notebook, Session
+from .session import Budget, Notebook, Session
 
 MODEL = "claude-opus-5"
 
@@ -150,21 +150,31 @@ def _outcome(stop, run):
 
 def play(level_xml, out, client=None, model=MODEL, effort=None, max_tool_calls=None,
          max_turns=300, max_nudges=2, max_tokens=32000, notebook=None, level=None,
-         levels_total=None, budget=None, spent=0.0, level_budget=None, reflect_turns=4,
-         log=print):
+         levels_total=None, budget=None, spent=0.0, level_budget=None, show_budget=True,
+         reflect_turns=4, log=print):
     """Play one level into directory `out`; returns the result dict (also
-    written to result.json). Tool calls are counted, not limited, unless
-    `max_tool_calls` is given (the prompt then says so); `budget` (for the
-    series) and `level_budget` (dollars for this level; its notes phase
-    still runs) are the limits that matter, and `max_turns` a backstop. `notebook` (a session.Notebook) turns notes on
-    and is updated in place. `budget` (dollars, with `spent` already spent)
-    stops the level once the estimated cost goes over it."""
+    written to result.json).
+
+    Limits: `level_budget` (dollars for this level) ends the level when it
+    runs out; the agent sees how much is used after each tool result unless
+    not `show_budget`, and the notes phase still runs. `budget` (dollars for
+    the series, `spent` already spent) stops everything. Tool calls are
+    counted, not limited, unless `max_tool_calls` is given (the prompt then
+    says so); `max_turns` is a backstop. `notebook` (a session.Notebook)
+    turns notes on and is updated in place."""
     if client is None:
         import anthropic
         client = anthropic.Anthropic(max_retries=6)
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    session = Session(level_xml, max_tool_calls=max_tool_calls, notebook=notebook)
+    level_cap = None
+    if level_budget is not None:
+        if model in PRICES:
+            level_cap = Budget(level_budget, shown=show_budget)
+        else:
+            log(f"no prices for {model}: no level budget")
+    session = Session(level_xml, max_tool_calls=max_tool_calls, notebook=notebook,
+                      budget=level_cap)
     record = _Record(out)
     params = dict(model=model, max_tokens=max_tokens, tools=tools.tools_for(session),
                   thinking={"type": "adaptive", "display": "summarized"},
@@ -188,6 +198,8 @@ def play(level_xml, out, client=None, model=MODEL, effort=None, max_tool_calls=N
                     log(f"{label}: still going ({last - t0:.0f} s)")
             response = s.get_final_message()
         _usage(usage, response.usage)
+        if level_cap is not None:
+            level_cap.update(cost(model, usage))
         messages.append({"role": "assistant", "content": response.content})
         record.message("assistant", response.content, stop_reason=response.stop_reason,
                        usage=response.usage.to_dict())
@@ -245,8 +257,7 @@ def play(level_xml, out, client=None, model=MODEL, effort=None, max_tool_calls=N
                 stop = "gave_up"
             if stop is None and over_budget():
                 stop = "budget"
-            if stop is None and level_budget is not None and (cost(model, usage) or 0) \
-                    >= level_budget:
+            if stop is None and level_cap is not None and level_cap.over:
                 stop = "level_budget"
         submitted = session.done
         if not submitted:
@@ -364,8 +375,11 @@ def main(argv=None):
     p.add_argument("--notes-cap", type=int, default=15000, help="notebook size, characters")
     p.add_argument("--budget", type=float, metavar="DOLLARS",
                    help="stop once the estimated cost passes this")
-    p.add_argument("--level-budget", type=float, metavar="DOLLARS",
-                   help="stop a level once it has cost this (its notes phase still runs)")
+    p.add_argument("--level-budget", type=float, default=3.0, metavar="DOLLARS",
+                   help="each level's budget, shown to the agent; the level ends when it "
+                        "runs out (its notes phase still runs). Default 3; 0 for none")
+    p.add_argument("--hide-budget", action="store_true",
+                   help="enforce the level budget without showing it to the agent")
     p.add_argument("--print-prompt", action="store_true",
                    help="print the first level's prompt and exit (no API calls)")
     a = p.parse_args(argv)
@@ -374,13 +388,15 @@ def main(argv=None):
         notebook = Notebook(Path(a.notes_from).read_text() if a.notes_from else "",
                             a.notes_cap)
     if a.print_prompt:
+        cap = (Budget(a.level_budget, shown=not a.hide_budget) if a.level_budget else None)
         s = Session(Path(a.levels[0]).read_text(), max_tool_calls=a.max_tool_calls,
-                    notebook=notebook)
+                    notebook=notebook, budget=cap)
         print(docs.task_prompt(s, 1, len(a.levels)))
         return 0
     summary = run_series(a.levels, a.out, notebook=notebook, budget=a.budget,
                          model=a.model, effort=a.effort, max_tool_calls=a.max_tool_calls,
-                         max_turns=a.max_turns, level_budget=a.level_budget,
+                         max_turns=a.max_turns, level_budget=a.level_budget or None,
+                         show_budget=not a.hide_budget,
                          log=lambda m: print(m, file=sys.stderr))
     print(f"{summary['solved']}/{summary['played']} solved, "
           f"estimated cost ${summary['cost']:.2f}")

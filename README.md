@@ -196,7 +196,7 @@ building, winning, running, images, saves.
 python3 -m fcenv.harness LEVEL.xml [LEVEL.xml ...] --out runs/try1
     [--model claude-opus-5] [--effort high] [--max-tool-calls N]
     [--max-turns 300] [--notes | --notes-from NOTES.md] [--notes-cap 15000]
-    [--budget DOLLARS] [--level-budget DOLLARS]
+    [--budget DOLLARS] [--level-budget 3] [--hide-budget]
 python3 -m fcenv.harness LEVEL.xml --out x --print-prompt   # no API calls
 ```
 
@@ -229,9 +229,18 @@ python3 -m fcenv.harness LEVEL.xml --out x --print-prompt   # no API calls
   one level with what a series learned.
 - **Cost**: each level's `result.json` has an estimated cost (from
   `harness.PRICES`), and `--budget` stops the run once the estimate passes
-  it: mid-level, and before starting the next level. `--level-budget` caps
-  each level on its own (stop `level_budget`; its notes phase still runs,
-  and the series goes on).
+  it: mid-level, and before starting the next level.
+- **Level budget** (`--level-budget`, $3 by default): each level's
+  allowance, which the agent sees. The prompt explains it (including that
+  later turns cost more, as each re-reads the conversation), and every tool
+  result ends with `[Budget: 34% of this level's used]`; from 75% it adds
+  about how many turns are left at the current rate, and from 90% what
+  happens at the end. When it runs out the level ends (stop
+  `level_budget`; the design is evaluated, the notes phase still runs and
+  the series goes on). `--hide-budget` enforces it without showing it, for
+  comparisons. As in other agent evals (METR's scaffolds, Google's Budget
+  Tracker, Anthropic's task budgets), the remaining budget is shown and
+  updated every step, and set generously.
 - Output per level, written as it goes:
   - `result.json`: stop reason, solved and when, counts, token usage, cost;
   - `transcript.md`: the readable version: turn by turn, the agent's
@@ -260,7 +269,8 @@ the loop, e.g. on a Claude subscription instead of API credits (needs
 
 ```
 python3 -m fcenv.cc LEVEL.xml [LEVEL.xml ...] --out runs/cc1 [--model M]
-    [--effort E] [--max-minutes 30] [--max-usage 0.8] [--max-level-usage 0.1]
+    [--effort E] [--level-budget 3] [--hide-budget] [--max-minutes 30]
+    [--max-usage 0.8] [--max-level-usage 0.3]
     [--notes | --notes-from NOTES.md]
 ```
 
@@ -272,12 +282,16 @@ python3 -m fcenv.cc LEVEL.xml [LEVEL.xml ...] --out runs/cc1 [--model M]
   tools, no settings files and an empty working directory, so it sees only
   our tools. It runs on the plan's default model unless `--model` says
   otherwise; `model` in `result.json` records which.
-- Limits: wall clock per level (`--max-minutes`, plus `--notes-minutes`
-  for the notes phase), and plan usage, which Claude Code reports (how
-  full the 5-hour and 7-day windows are). A level stops once it has used
-  `--max-level-usage` of either window itself (stop `level_usage`; its
-  notes phase still runs and the series goes on), and everything stops once
-  either window passes `--max-usage`. `plan_usage` in `result.json` has
+- The level budget works as with the API, in list-price dollars computed
+  from the same token counts (Claude Code reports each message's usage),
+  so the agent sees the same thing either way; `list_price_cost` in
+  `result.json` is what the level would have cost on the API.
+- Hidden backstops: wall clock per level (`--max-minutes`, plus
+  `--notes-minutes` for the notes phase), and plan usage, which Claude Code
+  reports (how full the 5-hour and 7-day windows are). A level stops once
+  it has used `--max-level-usage` of either window itself (stop
+  `level_usage`; its notes phase still runs and the series goes on), and
+  everything stops once either window passes `--max-usage`. `plan_usage` in `result.json` has
   each window before and after the level. A long level costs far more than
   its time suggests (each turn re-reads the growing context), so the usage
   limits are the ones that matter; wall clock is a backstop.

@@ -197,6 +197,8 @@ def dispatch(session, name, args, **meta):
     res = s.call(name, args, fns.get(name, lambda: Result(False, f"Unknown tool {name!r}.")),
                  **meta)
     blocks = [{"type": "text", "text": res.text}]
+    if s.budget is not None and s.budget.shown and not s.done:
+        blocks.append({"type": "text", "text": s.budget.note()})
     for png in res.images:
         blocks.append({"type": "image", "source": {
             "type": "base64", "media_type": "image/png",

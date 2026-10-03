@@ -17,6 +17,15 @@ def task_prompt(session, level=None, levels=None):
 
     limit = (f" You have {session.max_tool_calls} tool calls."
              if session.max_tool_calls is not None else "")
+    budget = ""
+    if session.budget is not None and session.budget.shown:
+        budget = """\
+This level has a budget for your work, spent by thinking, writing and
+reading: every turn re-reads the conversation so far, so later turns cost
+more than early ones. Each tool result ends with how much of it is used. If
+it runs out, the level ends and your design is evaluated as it is.
+
+"""
     nb = session.notebook
     notes = ""
     if nb is not None:
@@ -59,7 +68,7 @@ run once more, for up to {session.submit_timeout // 30} seconds, and the
 session ends. It counts as beaten if all goal pieces are inside the goal
 area at the same moment during that run.{limit}
 
-The help tool has details on: {", ".join(HELP)}.
+{budget}The help tool has details on: {", ".join(HELP)}.
 {notes}"""
 
 

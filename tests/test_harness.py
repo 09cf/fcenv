@@ -267,6 +267,21 @@ class TestHarness(unittest.TestCase):
         self.assertEqual([(r["stop"], r["turns"]) for r in summary["levels"]],
                          [("level_budget", 2), ("submitted", 2)])
 
+    def test_level_budget_is_shown(self):
+        # 10 input and 5 output tokens a turn: $0.000175 on Opus 5
+        r, out, client = play([[("describe", {})]] * 5, model="claude-opus-5",
+                              level_budget=0.0005)
+        self.assertEqual((r["stop"], r["turns"]), ("level_budget", 3))
+        self.assertIn("This level has a budget",
+                      client.requests[0]["messages"][0]["content"][0]["text"])
+        first = client.requests[1]["messages"][2]["content"][0]["content"]
+        self.assertEqual(first[-1], {"type": "text", "text": "[Budget: 35% of this level's used]"})
+        r, out, client = play([[("describe", {})]] * 5, model="claude-opus-5",
+                              level_budget=0.0005, show_budget=False)
+        self.assertEqual(r["stop"], "level_budget")
+        self.assertNotIn("[Budget", json.dumps(client.requests[-1]["messages"], default=str))
+        self.assertNotIn("budget", client.requests[0]["messages"][0]["content"][0]["text"])
+
     def test_request_parameters(self):
         _, _, client = play([[("submit", {})]], effort="high", model="m")
         p = client.requests[0]

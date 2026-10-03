@@ -16,10 +16,11 @@ from tests.test_edit import LEVEL  # noqa: E402
 FAKE = [sys.executable, str(Path(__file__).resolve().parent / "fake_claude.py")]
 
 
-def play(runs, usage=(0.1, 0.0), delay=0, **kw):
+def play(runs, usage=(0.1, 0.0), delay=0, model="fake-model", **kw):
     d = Path(tempfile.mkdtemp())
     script = d / "script.json"
-    script.write_text(json.dumps({"runs": runs, "usage": list(usage), "delay": delay}))
+    script.write_text(json.dumps({"runs": runs, "usage": list(usage), "delay": delay,
+                                  "model": model, "msg_usage": [1000, 100]}))
     import os
     os.environ["FAKE_CLAUDE_SCRIPT"] = str(script)
     r = cc.play(LEVEL, d / "out", claude=FAKE, log=lambda m: None, **kw)
@@ -110,6 +111,30 @@ class TestClaudeCode(unittest.TestCase):
         self.assertEqual(nb.text, "x")  # the notes phase still ran
         self.assertIn("used up its share", args[1][args[1].index("-p") + 1])
         self.assertTrue(r["usage_partial"])  # killed: no result event
+
+    def test_level_budget(self):
+        # each fake message: 1000 input and 100 output tokens, $0.006 on Opus 5.5
+        r, out, args = play([[[["describe", {}]]] * 6], delay=1, model="claude-opus-5-5",
+                            level_budget=0.02)
+        self.assertIn("--include-partial-messages", args[0])
+        self.assertIn("This level has a budget", args[0][args[0].index("-p") + 1])
+        # 0.006, 0.012, 0.018, then 0.024: over, before the 4th call
+        self.assertEqual((r["stop"], r["tool_calls"]), ("level_budget", 3))
+        self.assertEqual((r["list_price_cost"], r["level_budget"]), (0.024, 0.02))
+        self.assertEqual(r["usage"], {"input_tokens": 4000, "output_tokens": 400})  # exact
+        notes = [b["content"][-1]["text"] for m in lines(out / "transcript.jsonl")
+                 if m["role"] == "user" for b in m["content"] if b["type"] == "tool_result"]
+        self.assertEqual(notes, ["[Budget: 30% of this level's used]",
+                                 "[Budget: 60% of this level's used]",
+                                 "[Budget: 90% of this level's used; less than one more turn at "
+                                 "the current rate] When it runs out, the level ends and your "
+                                 "design is evaluated as it is."])
+        # hidden: the same limit, but nothing shown
+        r, out, args = play([[[["describe", {}]]] * 6], delay=1, model="claude-opus-5-5",
+                            level_budget=0.02, show_budget=False)
+        self.assertEqual(r["stop"], "level_budget")
+        self.assertNotIn("budget", args[0][args[0].index("-p") + 1])
+        self.assertNotIn("[Budget", (out / "transcript.jsonl").read_text())
 
     def test_time_limit(self):
         r, _, _ = play([[[["describe", {}]], "sleep", [["submit", {}]]]], max_minutes=0.05)

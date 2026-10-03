@@ -31,6 +31,36 @@ class Notebook:
 
 
 @dataclass
+class Budget:
+    """A level's allowance, in list-price dollars, as the agent sees it: tool
+    results end with how much is used (when `shown`). The runner keeps
+    `spent` up to date and ends the level when it runs out."""
+    total: float
+    spent: float = 0.0
+    last: float = 0.0  # what the latest turn cost
+    shown: bool = True
+
+    def update(self, spent):
+        self.last, self.spent = spent - self.spent, spent
+
+    @property
+    def over(self):
+        return self.spent >= self.total
+
+    def note(self):
+        used = round(self.spent / self.total, 6)  # 0.9 is 90%, not 89.99...
+        text = f"[Budget: {used:.0%} of this level's used"
+        if used >= 0.75 and self.last > 0:
+            n = max(0, int((self.total - self.spent) // self.last))
+            text += (f"; about {n} more turn{'' if n == 1 else 's'} at the current rate" if n
+                     else "; less than one more turn at the current rate")
+        text += "]"
+        if used >= 0.9:
+            text += " When it runs out, the level ends and your design is evaluated as it is."
+        return text
+
+
+@dataclass
 class Result:
     ok: bool
     text: str
@@ -39,13 +69,14 @@ class Result:
 
 class Session:
     def __init__(self, level_xml, rules=edit.Rules(), submit_timeout=6000,
-                 max_tool_calls=None, notebook=None):
+                 max_tool_calls=None, notebook=None, budget=None):
         if isinstance(level_xml, bytes):
             level_xml = level_xml.decode()
         self.rules = rules
         self.submit_timeout = submit_timeout
         self.max_tool_calls = max_tool_calls
         self.notebook = notebook
+        self.budget = budget
         self.versions = [level_xml]
         self.current = 0
         self._undo, self._redo = [], []

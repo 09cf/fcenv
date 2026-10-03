@@ -10,6 +10,9 @@ reply, which ends the run). "sleep" as a turn waits (for time limits).
 Each assistant message is followed by a rate_limit_event whose five_hour
 utilization grows by `step`, then a pause of "delay" seconds (as a real
 turn takes time; lets the driver act on the event before the calls run).
+With --include-partial-messages, each message also comes with its usage, as
+message_start and message_delta stream events ("msg_usage": [input,
+output] tokens). "model" names the model (default fake-model).
 """
 
 import asyncio
@@ -44,7 +47,10 @@ async def main(argv):
         script_path.write_text(json.dumps(script))
         state_path.write_text(json.dumps(state))
     save()
-    emit({"type": "system", "subtype": "init", "model": "fake-model", "session_id": "s"})
+    partial = "--include-partial-messages" in argv
+    msg_in, msg_out = script.get("msg_usage", [1000, 100])
+    emit({"type": "system", "subtype": "init", "model": script.get("model", "fake-model"),
+          "session_id": "s"})
     async with Client(url) as client:
         for turn in turns:
             state["n"] += 1
@@ -62,11 +68,17 @@ async def main(argv):
                     for i, (name, a) in enumerate(turn)]
             # thinking and each call as separate events of one message, as
             # Claude Code streams them
+            if partial:
+                emit({"type": "stream_event", "event": {"type": "message_start", "message": {
+                    "id": mid, "usage": {"input_tokens": msg_in, "output_tokens": 1}}}})
             emit({"type": "assistant", "message": {
                 "id": mid, "content": [{"type": "thinking", "thinking": "hmm"}],
                 "usage": {"output_tokens": 3}}})
             for u in uses:
                 emit({"type": "assistant", "message": {"id": mid, "content": [u]}})
+            if partial:
+                emit({"type": "stream_event", "event": {"type": "message_delta",
+                                                         "usage": {"output_tokens": msg_out}}})
             usage += step
             emit({"type": "rate_limit_event", "rate_limit_info": {
                 "status": "allowed_warning" if usage >= 0.9 else "allowed",

@@ -11,13 +11,16 @@ runs of a level: the first, then resumed runs for nudges and the notes
 phase. Claude Code gets our prompt with an empty system prompt, no built-in
 tools, no settings files and an empty working directory: only our tools.
 
-Limits: wall clock per level (--max-minutes; the notes phase gets
---notes-minutes more), and plan usage: Claude Code reports how much of the
-5-hour and 7-day windows is used. A level stops once it has used
---max-level-usage of either window itself (its notes phase still runs, and
-the series goes on), and everything stops once either window passes
---max-usage. result.json has plan_usage (each window before and after the
-level) instead of a cost.
+Limits: the level budget (--level-budget), in list-price dollars computed
+from tokens as for the API, so runs through either are comparable. The
+agent sees how much is used after each tool result (unless --hide-budget),
+and the level ends when it runs out (its notes phase still runs). Hidden
+backstops: wall clock per level (--max-minutes; the notes phase gets
+--notes-minutes more), and plan usage, which Claude Code reports (how full
+the 5-hour and 7-day windows are): a level stops once it has used
+--max-level-usage of either window itself, and everything stops once
+either window passes --max-usage. result.json has plan_usage (each window
+before and after the level) and list_price_cost.
 
 Output per level, as with the API harness, plus cc/: Claude Code's event
 stream (stream.jsonl, images left out), stderr and the MCP config.
@@ -35,9 +38,9 @@ import uuid
 from pathlib import Path
 
 from . import docs
-from .harness import (_NUDGE, _REFLECT, _UNCHANGED, _Record, _outcome, finish,
-                      run_series)
-from .session import Notebook, Session
+from .harness import (PRICES, _NUDGE, _REFLECT, _UNCHANGED, _Record, _outcome, cost,
+                      finish, run_series)
+from .session import Budget, Notebook, Session
 from .toolserver import ToolServer
 
 _WINDOWS = ("five_hour", "seven_day")
@@ -64,13 +67,15 @@ def _tool_result(b):
 
 def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=None,
          level=None, levels_total=None, max_minutes=30.0, notes_minutes=5.0,
-         max_usage=0.8, max_level_usage=0.1, max_nudges=2, claude="claude", log=print):
+         max_usage=0.8, max_level_usage=0.3, level_budget=None, show_budget=True,
+         max_nudges=2, claude="claude", log=print):
     """Play one level through Claude Code into directory `out`; returns the
     result dict (also written to result.json). `claude` is the command (a
     string, or a list for a command with arguments)."""
     out = Path(out).resolve()  # claude runs in out/cc/work
     (out / "cc" / "work").mkdir(parents=True, exist_ok=True)
-    session = Session(level_xml, max_tool_calls=max_tool_calls, notebook=notebook)
+    session = Session(level_xml, max_tool_calls=max_tool_calls, notebook=notebook,
+                      budget=Budget(level_budget, shown=show_budget) if level_budget else None)
     record = _Record(out)
     stream_file = open(out / "cc" / "stream.jsonl", "w")
     stderr_file = open(out / "cc" / "stderr.txt", "w")
@@ -78,8 +83,9 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
            if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}  # the subscription
     sid = str(uuid.uuid4())
     st = {"model": None, "turns": 0, "usage": {}, "cc_cost": 0.0, "windows": {},
-          "error": None, "over_usage": False, "level_over": False, "partial": False,
-          "msgs": {}, "got_result": False}
+          "error": None, "over_usage": False, "level_over": False, "budget_over": False,
+          "partial": False, "got_result": False,
+          "live": {}, "run_live": {}, "current": None}  # exact per-message usage
     assistant = []  # content of each assistant message (= turn), for linking calls
 
     def over(windows):
@@ -91,10 +97,27 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
         kind = e.get("type")
         if kind == "system" and e.get("subtype") == "init":
             st["model"] = st["model"] or e.get("model")
+            if session.budget is not None and st["model"] not in PRICES:
+                log(f"no prices for {st['model']}: no level budget")
+                session.budget = None
+        elif kind == "stream_event":
+            # a message's usage: input at its start, the final output at its end
+            ev = e.get("event") or {}
+            if ev.get("type") == "message_start":
+                st["current"] = dict(ev.get("message", {}).get("usage") or {})
+            elif ev.get("type") == "message_delta" and st["current"] is not None:
+                u = dict(st["current"], **{k: v for k, v in (ev.get("usage") or {}).items()
+                                           if isinstance(v, (int, float))})
+                st["current"] = None
+                for total in (st["live"], st["run_live"]):
+                    for k, v in u.items():
+                        if isinstance(v, (int, float)):
+                            total[k] = total.get(k, 0) + v
+                if session.budget is not None:
+                    session.budget.update(cost(st["model"], st["live"]))
+                    st["budget_over"] = session.budget.over
         elif kind == "assistant":
             msg = e["message"]
-            if msg.get("usage"):
-                st["msgs"][msg.get("id")] = msg["usage"]  # in case no result comes
             if pending is None or pending["id"] != msg.get("id"):
                 flush(pending)
                 pending = {"id": msg.get("id"), "content": [], "usage": msg.get("usage")}
@@ -150,12 +173,12 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
         was stopped (time or usage; the level's own usage limit only if
         `level_limit`)."""
         record.message("user", [{"type": "text", "text": message}])
-        st["msgs"], st["got_result"] = {}, False
+        st["run_live"], st["got_result"], st["current"] = {}, False, None
         args = ([claude] if isinstance(claude, str) else list(claude)) + [
                 "-p", message, "--system-prompt", "", "--setting-sources", "",
                 "--mcp-config", str(out / "cc" / "mcp.json"), "--strict-mcp-config",
                 "--tools", "", "--allowedTools", ",".join(srv.tool_names()),
-                "--output-format", "stream-json", "--verbose"]
+                "--output-format", "stream-json", "--verbose", "--include-partial-messages"]
         args += ["--session-id", sid] if first else ["--resume", sid]
         if model:
             args += ["--model", model]
@@ -180,22 +203,23 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
                     e = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                stream_file.write(json.dumps(_strip_images(e)) + "\n")
-                stream_file.flush()
+                if e.get("type") != "stream_event" or (e.get("event") or {}).get("type") in (
+                        "message_start", "message_delta"):  # not every text fragment
+                    stream_file.write(json.dumps(_strip_images(e)) + "\n")
+                    stream_file.flush()
                 pending = event(e, pending)
-            limited = st["over_usage"] or (level_limit and st["level_over"])
+            limited = st["over_usage"] or (level_limit and (st["level_over"]
+                                                            or st["budget_over"]))
             if (time.time() > deadline or limited) and stopped is None:
                 proc.terminate()
                 stopped = time.time()
             elif stopped is not None and time.time() > stopped + 10:
                 proc.kill()
         flush(pending)
-        if not st["got_result"]:  # killed: count what the messages reported
+        if not st["got_result"]:  # killed: no totals, so count the messages
             st["partial"] = True
-            for u in st["msgs"].values():
-                for k, v in u.items():
-                    if isinstance(v, (int, float)):
-                        st["usage"][k] = st["usage"].get(k, 0) + v
+            for k, v in st["run_live"].items():
+                st["usage"][k] = st["usage"].get(k, 0) + v
         if proc.wait() and stopped is None and not st["error"]:
             stderr_file.flush()
             tail = (out / "cc" / "stderr.txt").read_text().strip().splitlines()[-3:]
@@ -218,6 +242,8 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
                     stop = "submitted"
                 elif st["over_usage"]:
                     stop = "usage_limit"
+                elif st["budget_over"]:
+                    stop = "level_budget"
                 elif st["level_over"]:
                     stop = "level_usage"
                 elif stopped or time.time() >= deadline:
@@ -258,6 +284,9 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
                 "max_tool_calls": max_tool_calls, "turns": turns or st["turns"],
                 "nudges": nudges, "notes_turns": st["turns"] - (turns or st["turns"]),
                 "usage": st["usage"], "usage_partial": st["partial"], "cost": None,
+                "level_budget": level_budget, "budget_shown": show_budget,
+                "list_price_cost": (round(cost(st["model"], st["live"]), 4)
+                                    if st["model"] in PRICES else None),
                 "cc_cost_estimate": round(st["cc_cost"], 4),
                 "plan_usage": {w: v for w, v in st["windows"].items()},
                 "error": st["error"], "seconds": round(time.time() - start, 1)})
@@ -290,9 +319,15 @@ def main(argv=None):
     p.add_argument("--notes-minutes", type=float, default=5.0, help="per notes phase")
     p.add_argument("--max-usage", type=float, default=0.8,
                    help="stop everything once the 5-hour or 7-day window is this full (0-1)")
-    p.add_argument("--max-level-usage", type=float, default=0.1,
-                   help="stop a level once it has used this much of either window "
-                        "(0-1; its notes phase still runs)")
+    p.add_argument("--max-level-usage", type=float, default=0.3,
+                   help="hidden backstop: stop a level once it has used this much of "
+                        "either window (0-1; its notes phase still runs)")
+    p.add_argument("--level-budget", type=float, default=3.0, metavar="DOLLARS",
+                   help="each level's budget in list-price dollars (computed from tokens, "
+                        "as for the API), shown to the agent; the level ends when it runs "
+                        "out. Default 3; 0 for none")
+    p.add_argument("--hide-budget", action="store_true",
+                   help="enforce the level budget without showing it to the agent")
     p.add_argument("--max-tool-calls", type=int, help="per level; none by default")
     p.add_argument("--notes", action="store_true", help="keep a notebook across levels")
     p.add_argument("--notes-from", metavar="FILE", help="start the notebook from FILE; "
@@ -307,6 +342,7 @@ def main(argv=None):
                          effort=a.effort, max_tool_calls=a.max_tool_calls,
                          max_minutes=a.max_minutes, notes_minutes=a.notes_minutes,
                          max_usage=a.max_usage, max_level_usage=a.max_level_usage,
+                         level_budget=a.level_budget or None, show_budget=not a.hide_budget,
                          log=lambda m: print(m, file=sys.stderr))
     print(f"{summary['solved']}/{summary['played']} solved")
     return 0
