@@ -328,24 +328,74 @@ def _choose_jointed_to(design, graph, first_choice, max_imports=24):
     return None
 
 
-def _overlap(xml, design, changed, flagged, name):
-    """(message, block IDs) for a new overlap: a changed block and what it
-    overlaps, with at least one of the two newly flagged (`flagged`)."""
+_TAGS = {"SolidRod": "wood rod", "HollowRod": "water rod", "NoSpinWheel": "wheel",
+         "ClockwiseWheel": "cw wheel", "CounterClockwiseWheel": "ccw wheel",
+         "JointedDynamicRectangle": "goal rect", "StaticRectangle": "static rect",
+         "StaticCircle": "static circle", "DynamicRectangle": "dynamic rect",
+         "DynamicCircle": "dynamic circle"}
+_MAX_LISTED = 10
+
+
+def _n(v):
+    v = round(v, 1) + 0.0  # (+ 0.0: no "-0")
+    return str(int(v)) if v == int(v) else f"{v:.1f}"
+
+
+def _shape(b, goal=False):
+    """Where a block is, for messages: a rod's ends, a circle's centre and
+    radius, a rect's centre and size."""
+    x, y, w, h = (b.num(k) for k in ("x", "y", "width", "height"))
+    kind = _TAGS.get(b.tag, b.tag)
+    if goal:
+        kind = "goal circle" if b.is_wheel else "goal rect"
+    if b.is_rod:
+        a = b.num("rotation")
+        dx, dy = math.cos(a) * w / 2, math.sin(a) * w / 2
+        return f"{kind} ({_n(x - dx)}, {_n(y - dy)})-({_n(x + dx)}, {_n(y + dy)})"
+    if b.is_wheel or "Circle" in b.tag:
+        return f"{kind} at ({_n(x)}, {_n(y)}), radius {_n(w / 2)}"
+    return f"{kind} at ({_n(x)}, {_n(y)}), {_n(w)} x {_n(h)}"
+
+
+def _problems(xml, design, changed, overlapping, outside, name):
+    """(error code, message, block IDs) for an edit's new violations: every
+    piece newly outside the build area, and every new overlap involving a
+    changed block, with where the pieces are."""
     n = len(design.player_blocks)
-    with fccore.Sim(xml.encode()) as sim:
-        pairs = sim.overlaps()
-    found = []
-    for a, b in pairs:
-        for c, o in ((a, b), (b, a)):
-            if c in changed and (c in flagged or o in flagged):
-                found.append((c, o))
-    if not found:
-        i = min(flagged)
-        return f"{name(i)} would overlap another block", [design.ids[i]]
-    c, o = min(found)
-    if o >= n:
-        return f"{name(c)} would overlap the level (L{o - n})", [design.ids[c]]
-    return f"{name(c)} would overlap {name(o)}", [design.ids[c], design.ids[o]]
+
+    def where(i):
+        if i >= n:
+            return f"the level (L{i - n}: {_shape(design.level_blocks[i - n])})"
+        b = design.player_blocks[i]
+        return f"{name(i)} ({_shape(b, b.goal)})"
+
+    parts, ids = [], set()
+    if outside:
+        z = {k: float(v) for k, v in design.start.values.items()}
+        area = (f"x {_n(z['x'] - z['width'] / 2)} to {_n(z['x'] + z['width'] / 2)}, "
+                f"y {_n(z['y'] - z['height'] / 2)} to {_n(z['y'] + z['height'] / 2)}")
+        out = sorted(outside)
+        listed = "; ".join(where(i) for i in out[:_MAX_LISTED])
+        more = f" (and {len(out) - _MAX_LISTED} more)" if len(out) > _MAX_LISTED else ""
+        parts.append(f"outside the build area ({area}): {listed}{more}")
+        ids.update(design.ids[i] for i in out)
+    if overlapping:
+        with fccore.Sim(xml.encode()) as sim:
+            pairs = sim.overlaps()
+        found = sorted({(c, o) if not (o in changed and o < c) else (o, c)
+                        for a, b in pairs for c, o in ((a, b), (b, a))
+                        if c in changed and (c in overlapping or o in overlapping)})
+        if not found:  # (shouldn't happen: flagged, but no pair found)
+            found = [(i, None) for i in sorted(overlapping)]
+        lines = [f"{where(c)} would overlap " + (where(o) if o is not None
+                                                 else "another block")
+                 for c, o in found[:_MAX_LISTED]]
+        more = f" (and {len(found) - _MAX_LISTED} more)" if len(found) > _MAX_LISTED else ""
+        head = "1 overlap" if len(found) == 1 else f"{len(found)} overlaps"
+        parts.append(f"{head}: " + "; ".join(lines) + more)
+        ids.update(design.ids[i] for p in found for i in p if i is not None and i < n)
+    code = ErrorCode.OUTSIDE_BUILD_AREA if outside else ErrorCode.OVERLAP
+    return code, ". ".join(parts), sorted(ids)
 
 
 def _commit(st, design, graph, changed, old_index, first_choice, info, names=None):
@@ -365,19 +415,18 @@ def _commit(st, design, graph, changed, old_index, first_choice, info, names=Non
                     "(two joints of connected blocks at the same point?)",
                     sorted(design.ids[i] for i in changed))
     xml, got = found
-    overlapping = set()
+    overlapping, outside = set(), set()
     for i, flags in enumerate(got.flags):
         if got.types[i] in GOAL_TYPES:
             continue
         before = 0 if old_index[i] is None or i in changed else st.graph.flags[old_index[i]]
         new = flags & ~before
         if new & fccore.ILLEGAL_OUTSIDE_BUILD_AREA:
-            raise _Fail(ErrorCode.OUTSIDE_BUILD_AREA,
-                        f"{name(i)} would be outside the build area", [design.ids[i]])
+            outside.add(i)
         if new & fccore.ILLEGAL_OVERLAP:
             overlapping.add(i)
-    if overlapping:
-        raise _Fail(ErrorCode.OVERLAP, *_overlap(xml, design, changed, overlapping, name))
+    if overlapping or outside:
+        raise _Fail(*_problems(xml, design, changed, overlapping, outside, name))
     return Ok(xml, info)
 
 
@@ -419,9 +468,6 @@ class Wheel:
     center: object
 
 
-_KIND = {RodKind.WOOD: "wood rod", RodKind.WATER: "water rod", Spin.NONE: "wheel",
-         Spin.CW: "cw wheel", Spin.CCW: "ccw wheel"}
-
 # a new wheel's rim joints (slots 1-4), relative to its centre
 _RIM = ((20, 0), (0, 20), (-20, 0), (0, -20))
 
@@ -461,10 +507,9 @@ def _build(st, pieces, rules, keep_ids=None):
     for i, piece in enumerate(pieces):
         where = f"piece {i} of the batch: " if len(pieces) > 1 else ""
         n = n0 + i
-        kind = _KIND[RodKind(piece.kind) if isinstance(piece, Rod) else Spin(piece.spin)]
-        names[n] = (f"rod #{keep_ids[i]}" if keep_ids
-                    else f"the new {kind}" if len(pieces) == 1
-                    else f"piece {i} of the batch ({kind})")
+        names[n] = (f"#{keep_ids[i]}" if keep_ids  # (rewire)
+                    else "the new piece" if len(pieces) == 1
+                    else f"piece {i} of the batch")
         try:
             ends = [_endpoint(st, graph, ep, batch)
                     for ep in ((piece.a, piece.b) if isinstance(piece, Rod) else (piece.center,))]

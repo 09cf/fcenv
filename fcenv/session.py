@@ -82,6 +82,7 @@ class Session:
         self._undo, self._redo = [], []
         self.checkpoints = {"start": 0}  # name -> version index; "start": the level
         self.last_run = None  # (Run, version index)
+        self._rejected = False  # an edit was rejected since the last run
         self.log = []
         self.done = False
         self.final = None  # the submitted evaluation run
@@ -118,10 +119,11 @@ class Session:
                          **meta})
         return res
 
-    def _commit(self, result, describe_change):
+    def _commit(self, result, describe_change, unchanged="Nothing changed."):
         if isinstance(result, edit.Err):
             e = result.error
-            return Result(False, f"Rejected ({e.code.value}): {e.message}")
+            self._rejected = True
+            return Result(False, f"Rejected ({e.code.value}): {e.message}. {unchanged}")
         self._set(result.xml)
         return Result(True, describe_change(result))
 
@@ -157,7 +159,8 @@ class Session:
                     kind = "wheel" if p.spin == "none" else f"{p.spin} wheel"
                     parts.append(f"{kind} #{b} (centre {self._joints_text(js[:1])})")
             return "Added " + "; ".join(parts) + "."
-        return self._commit(edit.build(self.xml, pieces, self.rules), text)
+        return self._commit(edit.build(self.xml, pieces, self.rules), text,
+                            "Nothing was built: a build call is all or none.")
 
     def delete(self, blocks):
         """Delete pieces (block IDs), all or none."""
@@ -245,9 +248,16 @@ class Session:
     # ------------------------------------------------------------ runs
 
     def run(self, timeout=3000):
+        same = (self.last_run is not None
+                and self.versions[self.last_run[1]] == self.xml)
+        note = ""
+        if same:
+            note = ("Note: this is the same design as your last run"
+                    + (" (your last change was rejected)" if self._rejected else "") + ".\n")
+        self._rejected = False
         r = runs.simulate(self.xml, timeout=timeout)
         self.last_run = (r, self.current)
-        return Result(True, r.summary())
+        return Result(True, note + r.summary())
 
     def _latest(self):
         r, v = self.last_run

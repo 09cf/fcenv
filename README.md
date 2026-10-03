@@ -159,6 +159,11 @@ plus PNG images for `view` and the run images.
 - `delete` takes a list of pieces (all or none), and `load("start")` resets:
   both were one call per piece before, and an agent spent 36 calls
   clearing designs.
+- A rejected edit lists every problem it would cause, with where the pieces
+  are ("3 overlaps: piece 1 of the batch (cw wheel at (10, 230), radius 20)
+  would overlap piece 14 of the batch (wood rod (120, 170)-(-40, 230)); ..."),
+  and says that nothing changed. A run of the same design as the last run
+  says so (and whether a change was rejected in between).
 - Build tools return one line (what changed, with the new joint names), not
   images; `describe` and `view` show the design.
 - Tools: add_rod, add_wheel, build, delete, rewire, move_joint,

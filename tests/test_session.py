@@ -102,6 +102,22 @@ class TestTools(unittest.TestCase):
         call(s, "load", name="start")
         self.assertEqual(s.xml, LEVEL)
 
+    def test_rejections_say_nothing_changed_and_reruns_are_noted(self):
+        s = Session(LEVEL)
+        ok, text, _ = call(s, "build", pieces=[{"rod": "wood", "a": [-50, 0], "b": [50, 0]}])
+        self.assertTrue(text.endswith("Nothing was built: a build call is all or none."), text)
+        call(s, "add_rod", kind="wood", a=[60, 60], b=[120, 60])
+        ok, text, _ = call(s, "move_joint", joint="1:0", to=[0, 0])  # into the goal rect
+        self.assertTrue(text.endswith(". Nothing changed."), text)
+        self.assertFalse(call(s, "run", timeout=5)[1].startswith("Note"))  # the first run
+        call(s, "add_rod", kind="wood", a=[-50, 0], b=[50, 0])  # rejected
+        self.assertTrue(call(s, "run", timeout=5)[1].startswith(
+            "Note: this is the same design as your last run (your last change was rejected).\n"))
+        self.assertTrue(call(s, "run", timeout=5)[1].startswith(
+            "Note: this is the same design as your last run.\n"))
+        call(s, "add_rod", kind="water", a=[60, 60], b=[120, 60])
+        self.assertFalse(call(s, "run", timeout=5)[1].startswith("Note"))
+
     def test_delete_several(self):
         s = Session(LEVEL)
         call(s, "build", pieces=[{"rod": "wood", "a": [-60, 100], "b": [60, 100]},

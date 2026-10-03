@@ -140,10 +140,29 @@ class TestRejections(unittest.TestCase):
 
     def test_overlap(self):
         e = err(edit.add_rod(LEVEL, "wood", (-50, 0), (50, 0)), ErrorCode.OVERLAP)
-        self.assertEqual(e.message, "the new wood rod would overlap #0")
-        self.assertEqual(e.blocks, (1, 0))
+        self.assertEqual(e.message, "1 overlap: the new piece (wood rod (-50, 0)-(50, 0)) would "
+                                    "overlap #0 (goal rect at (0, 0), 40 x 40)")
+        self.assertEqual(e.blocks, (0, 1))
         e = err(edit.add_rod(LEVEL, "wood", (100, 250), (150, 250)), ErrorCode.OUTSIDE_BUILD_AREA)
-        self.assertEqual(e.message, "the new wood rod would be outside the build area")
+        self.assertEqual(e.message, "outside the build area (x -200 to 200, y -200 to 200): "
+                                    "the new piece (wood rod (100, 250)-(150, 250))")
+
+    def test_every_problem_is_reported(self):
+        from fcenv.edit import Rod, Wheel
+
+        e = err(edit.build(LEVEL, [Wheel("cw", (100, 100)), Wheel("cw", (110, 100)),
+                                   Rod("wood", (60, 60), (160, 160)),
+                                   Rod("wood", (300, 0), (350, 0))]),
+                ErrorCode.OUTSIDE_BUILD_AREA)  # outside first, overlaps after
+        self.assertEqual(e.message.split(". "), [
+            "outside the build area (x -200 to 200, y -200 to 200): piece 3 of the batch "
+            "(wood rod (300, 0)-(350, 0))",
+            "3 overlaps: piece 0 of the batch (cw wheel at (100, 100), radius 20) would overlap "
+            "piece 1 of the batch (cw wheel at (110, 100), radius 20); piece 0 of the batch (cw "
+            "wheel at (100, 100), radius 20) would overlap piece 2 of the batch (wood rod "
+            "(60, 60)-(160, 160)); piece 1 of the batch (cw wheel at (110, 100), radius 20) "
+            "would overlap piece 2 of the batch (wood rod (60, 60)-(160, 160))"])
+        self.assertEqual(e.blocks, (1, 2, 3, 4))
 
     def test_overlap_names_the_new_piece_and_what_it_hits(self):
         from fcenv.edit import Rod, Wheel
@@ -152,23 +171,27 @@ class TestRejections(unittest.TestCase):
         # the existing rod is the one flagged first, but the new piece is the cause
         e = err(edit.build(x, [Rod("water", (0, 60), (0, 140)), Rod("wood", (0, 60), (0, 140))]),
                 ErrorCode.OVERLAP)
-        self.assertEqual(e.message, "piece 1 of the batch (wood rod) would overlap #1")
-        self.assertEqual(e.blocks, (3, 1))
+        self.assertEqual(e.message, "1 overlap: piece 1 of the batch (wood rod (0, 60)-(0, 140)) "
+                                    "would overlap #1 (wood rod (-100, 100)-(100, 100))")
+        self.assertEqual(e.blocks, (1, 3))
         e = err(edit.build(x, [Wheel("cw", (150, 150)), Wheel("none", (160, 150))]),
                 ErrorCode.OVERLAP)
-        self.assertEqual(e.message, "piece 0 of the batch (cw wheel) would overlap "
-                                    "piece 1 of the batch (wheel)")
+        self.assertEqual(e.message, "1 overlap: piece 0 of the batch (cw wheel at (150, 150), "
+                                    "radius 20) would overlap piece 1 of the batch (wheel at "
+                                    "(160, 150), radius 20)")
         # moved pieces go by their IDs; level blocks by L<index>, as in describe
         box = ("<StaticRectangle><rotation>0</rotation><position><x>0</x><y>150</y>"
                "</position><width>40</width><height>40</height><goalBlock>false</goalBlock>"
                "<joints/></StaticRectangle></levelBlocks>")
         y = x.replace("</levelBlocks>", box)
         e = err(edit.move_component(y, 1, 0, 50), ErrorCode.OVERLAP)
-        self.assertEqual(e.message, "#1 would overlap the level (L1)")
+        self.assertEqual(e.message, "1 overlap: #1 (wood rod (-100, 150)-(100, 150)) would "
+                                    "overlap the level (L1: static rect at (0, 150), 40 x 40)")
         # a rewired rod keeps its ID: from (-150, 190) to 1:1 (100, 100) crosses L1
         y = ok(edit.add_rod(y, "wood", (-150, 190), (-150, 130))).xml  # 2
         e = err(edit.rewire(y, 2, 1, JointRef(1, 1)), ErrorCode.OVERLAP)
-        self.assertEqual(e.message, "rod #2 would overlap the level (L1)")
+        self.assertTrue(e.message.startswith("1 overlap: #2 (wood rod (-150, 190)-(100, 100)) "
+                                             "would overlap the level (L1"), e.message)
         # water rods pass through design blocks
         ok(edit.add_rod(LEVEL, "water", (-50, 0), (50, 0)))
 
@@ -275,7 +298,7 @@ class TestBatch(unittest.TestCase):
     def test_batch_is_atomic(self):
         e = err(edit.add_rods(LEVEL, [("wood", (60, 60), (120, 60)),
                                       ("wood", (-50, 0), (50, 0))]), ErrorCode.OVERLAP)
-        self.assertEqual(e.blocks, (2, 0))
+        self.assertEqual(e.blocks, (0, 2))
 
     def test_batch_references(self):
         err(edit.add_rods(LEVEL, [("wood", NewRef(0, 0), (120, 60))]), ErrorCode.BAD_REFERENCE)
