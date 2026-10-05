@@ -260,17 +260,25 @@ class Run:
             surfs = [cairo.ImageSurface.create_from_png(io.BytesIO(p)) for p in imgs]
             cw = max(s.get_width() for s in surfs)
             ch = max(s.get_height() for s in surfs)
-            page = cairo.ImageSurface(cairo.FORMAT_RGB24, cw * min(cols, len(chunk)), ch * rows)
+            n_cols = min(cols, len(chunk))
+            # frames on a dark page with gutters, so each one's edges show
+            page = cairo.ImageSurface(cairo.FORMAT_RGB24, n_cols * (cw + _GAP) + _GAP,
+                                      rows * (ch + _GAP) + _GAP)
             cr = cairo.Context(page)
-            cr.set_source_rgb(1, 1, 1)
+            cr.set_source_rgb(*_GUTTER)
             cr.paint()
             for k, s in enumerate(surfs):
-                cr.set_source_surface(s, (k % cols) * cw, (k // cols) * ch)
+                cr.set_source_surface(s, _GAP + (k % cols) * (cw + _GAP),
+                                      _GAP + (k // cols) * (ch + _GAP))
                 cr.paint()
             buf = io.BytesIO()
             page.write_to_png(buf)
             pages.append(R.Render(buf.getvalue(), region, []))
         return pages
+
+
+_GAP = 8  # filmstrip gutters, px
+_GUTTER = (0.3, 0.3, 0.32)
 
 
 def _similar(a, b, scale, near_px=18, max_turn=0.35, ratio=1.6):
