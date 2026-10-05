@@ -88,7 +88,8 @@ Pieces you can build:
 
 Goal pieces are red rectangles and circles that must end up in
 the goal area. You can connect to their joints and move them, but not
-delete them.
+delete them. As with all pieces, only ones inside the build area can be
+picked up, and they can't be moved out of it.
 
 Level pieces: green is fixed terrain. Orange and yellow pieces are movable
 parts of the level: they fall, roll and get pushed.
@@ -145,7 +146,9 @@ joint).
 move_joint moves one joint: wheels and goal pieces on it move with it, rods
 stretch. move_component moves a piece and everything connected to it.
 rewire reconnects one end of a rod; the rod then counts as newest.
-Nothing connects or disconnects when you move things.""",
+Nothing connects or disconnects when you move things. You can only pick up
+a joint or piece inside the build area, and a move can't make anything
+overlap or leave the build area.""",
 
     "winning": """\
 The level is beaten at the first moment every goal piece is completely inside

@@ -337,6 +337,23 @@ _TAGS = {"SolidRod": "wood rod", "HollowRod": "water rod", "NoSpinWheel": "wheel
 _MAX_LISTED = 10
 
 
+def _area(design):
+    z = {k: float(v) for k, v in design.start.values.items()}
+    return z["x"] - z["width"] / 2, z["y"] - z["height"] / 2, \
+        z["x"] + z["width"] / 2, z["y"] + z["height"] / 2
+
+
+def _grab(design, x, y, what):
+    """The game only lets you pick things up inside the build area (and
+    then won't let a move add collisions, including with walls around it)."""
+    x0, y0, x1, y1 = _area(design)
+    if not (x0 <= x <= x1 and y0 <= y <= y1):
+        raise _Fail(ErrorCode.OUTSIDE_BUILD_AREA,
+                    f"{what} is at ({_n(x)}, {_n(y)}), outside the build area (x {_n(x0)} "
+                    f"to {_n(x1)}, y {_n(y0)} to {_n(y1)}): only things inside it can be "
+                    "moved")
+
+
 def _n(v):
     v = round(v, 1) + 0.0  # (+ 0.0: no "-0")
     return str(int(v)) if v == int(v) else f"{v:.1f}"
@@ -424,11 +441,11 @@ def _commit(st, design, graph, changed, old_index, first_choice, info, names=Non
                     f"{got.overflow} more. Fewer pieces in one spot (e.g. fewer rods "
                     "stacked on one joint) fixes it",
                     sorted(design.ids[i] for i in changed))
+    # as in the game, an edit may not add problems: each existing piece
+    # (goal pieces included) is compared with its own state before the edit
     overlapping, outside = set(), set()
     for i, flags in enumerate(got.flags):
-        if got.types[i] in GOAL_TYPES:
-            continue
-        before = 0 if old_index[i] is None or i in changed else st.graph.flags[old_index[i]]
+        before = 0 if old_index[i] is None else st.graph.flags[old_index[i]]
         new = flags & ~before
         if new & fccore.ILLEGAL_OUTSIDE_BUILD_AREA:
             outside.add(i)
@@ -661,12 +678,14 @@ def move_joint(xml, joint, to, rules=Rules()):
     (wheel, goal rect, goal circle) moves rigidly, taking all its joints
     along, until nothing else joins. Rods stretch; a rod with both ends in
     the moved set translates. Moving never connects or disconnects anything,
-    and block order is unchanged. Goal pieces can be moved.
+    and block order is unchanged. Goal pieces can be moved. As in the game,
+    only a joint inside the build area can be picked up.
     info: moved (blocks translated), stretched (rods stretched), delta."""
     def go():
         st = _load(xml)
         graph = st.graph
         start = graph.stack_of(_ref(st, joint))
+        _grab(st.design, start.x, start.y, f"joint {joint.block}:{joint.slot}")
         tx, ty = _point_of(graph, _endpoint(st, graph, to))
         dx, dy = tx - start.x, ty - start.y
 
@@ -721,11 +740,14 @@ def move_joint(xml, joint, to, rules=Rules()):
 def move_component(xml, block, dx, dy, rules=Rules()):
     """Translate the whole connected component containing block `block`
     (every block joined to it through shared joints, goal pieces included)
-    by (dx, dy). Nothing stretches, connects or disconnects.
+    by (dx, dy). Nothing stretches, connects or disconnects. As in the game,
+    only a block inside the build area (its centre) can be picked up.
     info: moved (block IDs), delta."""
     def go():
         st = _load(xml)
         i0 = st.index(block)
+        b0 = st.design.player_blocks[i0]
+        _grab(st.design, b0.num("x"), b0.num("y"), f"#{block}")
         comp = next(g for g in _components(st.graph) if i0 in g)
         blocks = list(st.design.player_blocks)
         for i in comp:

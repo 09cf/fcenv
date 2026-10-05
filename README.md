@@ -68,6 +68,12 @@ Operations:
     check; edits must not add violations, which keeps the game's leniency for
     designs that start illegal;
   - deleting goal pieces;
+  - picking up a joint or piece outside the build area (`move_joint`,
+    `move_component`), as the game only lets you grab things inside it.
+    Goal pieces get no exemption from the overlap and build-area checks:
+    the game's editor puts walls around the build area, so nothing can be
+    dragged out of it (an agent moved a goal piece straight into the goal
+    area, and grabbed one that starts outside);
   - rods shorter than `Rules.min_rod_length` (default 1), or more design
     blocks than `Rules.max_design_blocks` (default 300, fcsim's editor cap;
     goal pieces count).

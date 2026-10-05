@@ -348,6 +348,36 @@ class TestBatch(unittest.TestCase):
         err(edit.build(LEVEL, [Wheel("cw", (100, 100)), Wheel("cw", (-100, 100))],
                        Rules(max_design_blocks=2)), ErrorCode.PIECE_LIMIT)
 
+    def test_goal_pieces_stay_in_the_build_area(self):
+        # moved out of the build area (into the goal area): refused, as the game's
+        # walls around the build area would
+        e = err(edit.move_joint(LEVEL, JointRef(GOAL, 0), (300, 0)), ErrorCode.OUTSIDE_BUILD_AREA)
+        self.assertIn("goal rect", e.message)
+        err(edit.move_component(LEVEL, GOAL, 300, 0), ErrorCode.OUTSIDE_BUILD_AREA)
+        ok(edit.move_joint(LEVEL, JointRef(GOAL, 0), (100, 100)))  # within it: fine
+        # into terrain: refused too
+        box = ("<StaticRectangle><rotation>0</rotation><position><x>0</x><y>150</y>"
+               "</position><width>40</width><height>40</height><goalBlock>false</goalBlock>"
+               "<joints/></StaticRectangle></levelBlocks>")
+        err(edit.move_joint(LEVEL.replace("</levelBlocks>", box), JointRef(GOAL, 0), (0, 150)),
+            ErrorCode.OVERLAP)
+
+    def test_only_things_in_the_build_area_can_be_picked_up(self):
+        # a goal piece that starts outside the build area (as in many levels)
+        out = LEVEL.replace("<x>0</x><y>0</y></position><width>40</width><height>40</height>"
+                            "<goalBlock>true</goalBlock>",
+                            "<x>260</x><y>0</y></position><width>40</width><height>40</height>"
+                            "<goalBlock>true</goalBlock>")
+        e = err(edit.move_joint(out, JointRef(GOAL, 0), (0, 0)), ErrorCode.OUTSIDE_BUILD_AREA)
+        self.assertIn("only things inside it can be moved", e.message)
+        err(edit.move_component(out, GOAL, -260, 0), ErrorCode.OUTSIDE_BUILD_AREA)
+        # its corner (240, 20) is outside too, so a rod can't reach it from inside
+        err(edit.add_rod(out, "wood", JointRef(GOAL, 3), (150, 20)),
+            ErrorCode.OUTSIDE_BUILD_AREA)
+        # but pieces inside are still free to move and build
+        x = ok(edit.add_rod(out, "wood", (0, 100), (60, 100))).xml
+        ok(edit.move_joint(x, JointRef(1, 1), (60, 140)))
+
     def test_too_crowded(self):
         # 256 rods on one joint: more overlapping pairs than the engine holds
         e = err(edit.add_rod(LEVEL, "water", JointRef(GOAL, 1), (60, -20), count=256),
