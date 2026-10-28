@@ -95,7 +95,9 @@ TOOLS = [
            "motion": {"type": "boolean"}}),
     _tool("help", "Reference on a topic, or the list of topics.",
           {"topic": {"type": "string"}}),
-    _tool("submit", "Submit the current design as final. Ends the session."),
+    _tool("submit", "Submit the current design: it's run once more, and if it beats the "
+                    "level, the session ends. A design that doesn't beat the level isn't "
+                    "accepted (you get the check run's summary, and carry on)."),
 ]
 
 NOTES_TOOL = _tool(

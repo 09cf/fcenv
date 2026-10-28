@@ -24,6 +24,8 @@ LEVEL = (
     "</start><end><position><x>300</x><y>0</y></position><width>100</width>"
     "<height>100</height></end></level></retrieveLevel>"
 )
+# LEVEL with the goal area around the goal piece: solved at once
+SOLVED = LEVEL.replace("<end><position><x>300</x>", "<end><position><x>0</x>")
 GOAL = 0  # the goal rect's corners are slots 1-4: (20,-20), (-20,-20), (20,20), (-20,20)
 
 

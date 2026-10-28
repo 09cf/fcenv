@@ -8,9 +8,10 @@ transcript.jsonl, images/, result.json):
   after it, in the build view with joints labelled;
 - a rejected call shows the unchanged design, with the error in red;
 - calls that returned images (view, run_frame, ...) show what the agent saw;
-- run and submit are re-simulated from the version they ran on and played
-  at 30 ticks a second (real time), sped up past `max_run` seconds. If the
-  agent never submitted, the harness's final evaluation is played at the end.
+- run and submit (refused or not: either way it ran the design) are
+  re-simulated from the version they ran on and played at 30 ticks a second
+  (real time), sped up past `max_run` seconds. If the agent never submitted,
+  the harness's final evaluation is played at the end.
 A bar on top shows the call and its result; the bottom shows the agent's
 words for that turn.
 """
@@ -177,7 +178,8 @@ def segments(out, width=1280, height=720, fps=30, hold=0.8, look=0.6, max_run=12
         said = words[e["turn"] - 1] if "turn" in e and e["turn"] <= len(words) else ""
         first = e["text"].splitlines()[0] if e["text"] else ""
         seen = images.get(e.get("tool_use_id"), [])
-        if e["tool"] in ("run", "submit") and e["ok"]:
+        if (e["tool"] == "run" and e["ok"]) or (
+                e["tool"] == "submit" and (e["ok"] or e["text"].startswith("Not submitted"))):
             timeout = int(e["args"].get("timeout", 3000)) if e["tool"] == "run" else 6000
             yield from play(versions[e["version_before"]], timeout, title, said)
         elif e["ok"] and seen:

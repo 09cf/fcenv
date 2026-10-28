@@ -9,7 +9,9 @@ each a list of turns: a list of [tool, args] calls, or a string (a text
 reply, which ends the run). "sleep" as a turn waits (for time limits);
 "hang" starts a child process that keeps stdout open, then waits, as
 Claude Code did when it hung on API retries. "resets" lists the 5-hour
-window's resetsAt per turn (the last one repeats).
+window's resetsAt per turn (the last one repeats). "run_usage" lists the
+5-hour utilization each run starts from (e.g. a fresh window after a wait;
+the last one repeats), instead of carrying on from the last run's.
 Each assistant message is followed by a rate_limit_event whose five_hour
 utilization grows by `step`, then a pause of "delay" seconds (as a real
 turn takes time; lets the driver act on the event before the calls run).
@@ -43,6 +45,9 @@ async def main(argv):
     Path(script_path.with_suffix(f".args{state['run']}")).write_text(json.dumps(argv))
     url = json.loads(Path(argv[argv.index("--mcp-config") + 1]).read_text())[
         "mcpServers"]["fc"]["url"]
+    if "run_usage" in script:
+        ru = script["run_usage"]
+        usage = ru[min(state["run"], len(ru) - 1)]
     turns = runs[state["run"]] if state["run"] < len(runs) else ["done"]
     state["run"] += 1
 

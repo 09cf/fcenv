@@ -15,11 +15,12 @@ Limits: the level budget (--level-budget), in list-price dollars computed
 from tokens as for the API, so runs through either are comparable. The
 agent sees how much is used after each tool result (unless --hide-budget),
 and the level ends when it runs out (its notes phase still runs). Hidden
-backstops: wall clock per level (--max-minutes; the notes phase gets
---notes-minutes more), and plan usage, which Claude Code reports (how full
+backstops: wall clock per level (--max-minutes, 0 for none; the notes phase
+gets --notes-minutes more), a run with no output for --idle-minutes (hung), and plan usage, which Claude Code reports (how full
 the 5-hour and 7-day windows are): a level stops once it has used
 --max-level-usage of either window itself, and everything stops once
-either window passes --max-usage. result.json has plan_usage (each window
+either window passes --max-usage. --max-series-calls is a hidden cutoff
+for the whole series, in tool calls. result.json has plan_usage (each window
 before and after the level) and list_price_cost.
 
 Output per level, as with the API harness, plus cc/: Claude Code's event
@@ -45,6 +46,7 @@ from .session import Budget, Notebook, Session
 from .toolserver import ToolServer
 
 _WINDOWS = ("five_hour", "seven_day")
+_RESUME = "(Carry on where you left off.)"
 
 
 def _strip_images(obj):
@@ -69,12 +71,25 @@ def _tool_result(b):
 def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=None,
          level=None, levels_total=None, max_minutes=30.0, notes_minutes=5.0,
          max_usage=0.8, max_level_usage=0.3, level_budget=None, show_budget=True,
-         max_nudges=2, window=None, across_windows=False, claude="claude", log=print):
+         max_nudges=10, window=None, across_windows=False, call_cap=None,
+         wait_for_reset=False, reset_margin=60, idle_minutes=20.0, sleep=time.sleep,
+         claude="claude", log=print):
     """Play one level through Claude Code into directory `out`; returns the
     result dict (also written to result.json). `claude` is the command (a
     string, or a list for a command with arguments). `window` (a dict shared
     by a series' levels) remembers when the 5-hour window the series started
-    in resets: unless `across_windows`, a level stops when it does."""
+    in resets: unless `across_windows`, a level stops when it does.
+    `call_cap` is a hidden limit on the level's tool calls: what's left of
+    the series' (stop `series_limit`). A run that ends without a submit
+    gets a nudge to carry on, and `max_nudges` in a row with no tool call in
+    between end the level (gave_up). With `wait_for_reset`, the 5-hour window
+    passing `max_usage` doesn't end the level: claude is stopped, the driver
+    waits until the window resets (plus `reset_margin` seconds; the wall
+    clock stops meanwhile) and resumes the conversation, so a level can span
+    windows (result.json lists the pauses). The 7-day window still stops
+    everything. `max_minutes` None: no wall clock for the level; a claude run
+    that goes `idle_minutes` with no output at all is stopped either way
+    (stop `stalled`), as hung."""
     out = Path(out).resolve()  # claude runs in out/cc/work
     (out / "cc" / "work").mkdir(parents=True, exist_ok=True)
     session = Session(level_xml, max_tool_calls=max_tool_calls, notebook=notebook,
@@ -87,10 +102,13 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
     sid = str(uuid.uuid4())
     st = {"model": None, "turns": 0, "usage": {}, "cc_cost": 0.0, "windows": {},
           "error": None, "over_usage": False, "level_over": False, "budget_over": False,
-          "window_reset": False,
+          "window_reset": False, "resets_at": None, "stalled": False,
           "partial": False, "got_result": False,
           "live": {}, "run_live": {}, "current": None}  # exact per-message usage
     assistant = []  # content of each assistant message (= turn), for linking calls
+
+    def capped():
+        return call_cap is not None and session.tool_calls >= call_cap
 
     def over(windows):
         return any((windows.get(w) or {}).get("utilization", 0) >= max_usage
@@ -149,9 +167,10 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
                     or over(windows):
                 st["over_usage"] = True
             resets = (windows.get("five_hour") or {}).get("resetsAt")
+            st["resets_at"] = resets or st["resets_at"]
             if window is not None and resets:
                 window.setdefault("resets_at", resets)
-                if resets != window["resets_at"] and not across_windows:
+                if resets != window["resets_at"] and not (across_windows or wait_for_reset):
                     st["window_reset"] = True  # a new 5-hour window began
             if max_level_usage is not None and any(
                     b - a >= max_level_usage - 1e-9 for a, b in st["windows"].values()):
@@ -208,13 +227,17 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
         threading.Thread(target=lambda: ([lines.put(x) for x in proc.stdout], lines.put(None)),
                          daemon=True).start()
         deadline, pending, stopped = time.time() + seconds, None, None
+        idle = (idle_minutes or float("inf")) * 60
+        heard = time.time()  # the last output
         while True:
             try:
-                line = lines.get(timeout=max(0.1, deadline - time.time()))
+                line = lines.get(timeout=max(0.1, min(deadline, heard + idle) - time.time()))
             except queue.Empty:
                 line = ""
             if line is None:
                 break
+            if line:
+                heard = time.time()
             if line.strip():
                 try:
                     e = json.loads(line)
@@ -226,8 +249,10 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
                     stream_file.flush()
                 pending = event(e, pending)
             limited = st["over_usage"] or st["window_reset"] or (
-                level_limit and (st["level_over"] or st["budget_over"]))
-            if (time.time() > deadline or limited) and stopped is None:
+                level_limit and (st["level_over"] or st["budget_over"] or capped()))
+            stalled = time.time() > heard + idle
+            if (time.time() > deadline or limited or stalled) and stopped is None:
+                st["stalled"] = stalled
                 signal_all(signal.SIGTERM)
                 stopped = time.time()
             elif stopped is not None and time.time() > stopped + 10:
@@ -252,16 +277,46 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
         return stopped is not None
 
     start = time.time()
-    turns = nudges = 0
+    clock = {"deadline": start + max_minutes * 60 if max_minutes else float("inf")}
+    pauses = []
+
+    def wait():
+        """With wait_for_reset, once the 5-hour window (only) is over the
+        limit: wait for it to reset. Returns whether it did."""
+        week = (st["windows"].get("seven_day") or [0, 0])[1]
+        if not wait_for_reset or not st["resets_at"] or week >= max_usage:
+            return False
+        seconds = max(0.0, st["resets_at"] - time.time()) + reset_margin
+        log(f"usage limit: waiting {seconds / 60:.0f} min for the 5-hour window to reset")
+        pauses.append({"at": round(time.time()), "seconds": round(seconds),
+                       "plan_usage": st["windows"]})
+        sleep(seconds)
+        clock["deadline"] += seconds
+        st["over_usage"], st["windows"], st["resets_at"] = False, {}, None
+        return True
+
+    def go(message, first, seconds, level_limit=True):
+        """invoke, resuming after each wait for the window. `seconds()` is
+        the time the run gets."""
+        stopped = invoke(message, first, seconds(), level_limit)
+        while st["over_usage"] and (session.final is None or not level_limit) and wait():
+            stopped = invoke(_RESUME, False, seconds(), level_limit)
+        return stopped
+
+    def left():
+        return clock["deadline"] - time.time()
+
+    def notes_time():
+        return notes_minutes * 60
+    turns = nudges = quiet = 0  # quiet: nudges since the last tool call
     stop = None
     with ToolServer(session, on_call=lambda: record.sync(session)) as srv:
         (out / "cc" / "mcp.json").write_text(json.dumps(
             {"mcpServers": {"fc": {"type": "http", "url": srv.url}}}))
         record.sync(session)
         try:
-            deadline = start + max_minutes * 60
-            stopped = invoke(docs.task_prompt(session, level, levels_total), True,
-                             deadline - time.time())
+            stopped = go(docs.task_prompt(session, level, levels_total), True, left)
+            calls = len(session.log)
             while stop is None:
                 if session.done:
                     stop = "submitted"
@@ -269,32 +324,38 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
                     stop = "usage_limit"
                 elif st["window_reset"]:
                     stop = "window_reset"
+                elif capped():
+                    stop = "series_limit"
                 elif st["budget_over"]:
                     stop = "level_budget"
                 elif st["level_over"]:
                     stop = "level_usage"
-                elif stopped or time.time() >= deadline:
+                elif st["stalled"]:
+                    stop = "stalled"
+                elif stopped or left() <= 0:
                     stop = "time_limit"
                 elif st["error"]:
                     stop = "error"
                 elif (max_tool_calls is not None
                       and session.tool_calls >= max_tool_calls):
                     stop = "tool_limit"
-                elif nudges < max_nudges:
-                    nudges += 1
-                    stopped = invoke(_NUDGE, False, deadline - time.time())
+                elif quiet < max_nudges or len(session.log) > calls:
+                    quiet = 1 if len(session.log) > calls else quiet + 1
+                    nudges, calls = nudges + 1, len(session.log)
+                    stopped = go(_NUDGE, False, left)
                 else:
                     stop = "gave_up"
             turns = st["turns"]
             if session.final is None:
-                session.submit()  # evaluate the current design, outside the log
-            if notebook is not None and stop not in ("usage_limit", "window_reset", "error"):
+                session.evaluate()
+            if notebook is not None and session.solved_by_agent \
+                    and stop not in ("usage_limit", "window_reset", "series_limit", "error"):
                 first = len(session.log)
-                invoke(_REFLECT.format(outcome=_outcome(stop, session.final)), False,
-                       notes_minutes * 60, level_limit=False)
+                go(_REFLECT.format(outcome=_outcome(stop, session.final)), False,
+                   notes_time, level_limit=False)
                 if not st["over_usage"] and not any(
                         e["tool"] == "write_notes" and e["ok"] for e in session.log[first:]):
-                    invoke(_UNCHANGED, False, notes_minutes * 60, level_limit=False)
+                    go(_UNCHANGED, False, notes_time, level_limit=False)
         finally:
             record.close()
             stream_file.close()
@@ -316,6 +377,7 @@ def play(level_xml, out, model=None, effort=None, max_tool_calls=None, notebook=
                                     if st["model"] in PRICES else None),
                 "cc_cost_estimate": round(st["cc_cost"], 4),
                 "plan_usage": {w: v for w, v in st["windows"].items()},
+                "pauses": pauses, "paused_seconds": sum(p["seconds"] for p in pauses),
                 "error": st["error"], "seconds": round(time.time() - start, 1)})
     return result
 
@@ -342,16 +404,24 @@ def main(argv=None):
     p.add_argument("--out", required=True, help="output directory")
     p.add_argument("--model", help="default: Claude Code's (your plan's) default")
     p.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
-    p.add_argument("--max-minutes", type=float, default=30.0, help="per level")
+    p.add_argument("--max-minutes", type=float, default=30.0, help="per level; 0 for none")
+    p.add_argument("--idle-minutes", type=float, default=20.0,
+                   help="stop a claude run that has written nothing for this long, as hung "
+                        "(stop: stalled)")
     p.add_argument("--notes-minutes", type=float, default=5.0, help="per notes phase")
     p.add_argument("--max-usage", type=float, default=0.8,
                    help="stop everything once the 5-hour or 7-day window is this full (0-1)")
     p.add_argument("--across-windows", action="store_true",
                    help="carry on when the 5-hour usage window the run started in resets "
                         "(by default the run stops there)")
+    p.add_argument("--wait-for-reset", action="store_true",
+                   help="when the 5-hour window passes --max-usage, wait for it to reset "
+                        "and resume the level, instead of stopping (implies "
+                        "--across-windows)")
     p.add_argument("--max-level-usage", type=float, default=0.3,
                    help="hidden backstop: stop a level once it has used this much of "
-                        "either window (0-1; its notes phase still runs)")
+                        "either window (0-1, within one window; 0 for none; its notes "
+                        "phase still runs)")
     p.add_argument("--level-budget", type=float, default=3.0, metavar="DOLLARS",
                    help="each level's budget in list-price dollars (computed from tokens, "
                         "as for the API), shown to the agent; the level ends when it runs "
@@ -359,6 +429,15 @@ def main(argv=None):
     p.add_argument("--hide-budget", action="store_true",
                    help="enforce the level budget without showing it to the agent")
     p.add_argument("--max-tool-calls", type=int, help="per level; none by default")
+    p.add_argument("--max-series-calls", type=int,
+                   help="hidden cutoff: stop the series once its levels have made this "
+                        "many tool calls in all, mid-level if need be; none by default")
+    p.add_argument("--max-nudges", type=int, default=10,
+                   help="end a level after this many replies in a row without a tool call "
+                        "(each gets a nudge to carry on)")
+    p.add_argument("--ungated", action="store_true",
+                   help="play every level, solved or not (by default a series stops at "
+                        "the first level that isn't solved)")
     p.add_argument("--notes", action="store_true", help="keep a notebook across levels")
     p.add_argument("--notes-from", metavar="FILE", help="start the notebook from FILE; "
                    "implies --notes")
@@ -369,16 +448,29 @@ def main(argv=None):
         notebook = Notebook(Path(a.notes_from).read_text() if a.notes_from else "",
                             a.notes_cap)
     window = {}  # the 5-hour window the run started in
+    calls = [0]  # the series' tool calls so far
 
     def gate():
-        if (not a.across_windows and window.get("resets_at")
+        if (not (a.across_windows or a.wait_for_reset) and window.get("resets_at")
                 and time.time() >= window["resets_at"]):
             return "window_reset"
-    summary = run_series(a.levels, a.out, notebook=notebook, player=play, gate=gate,
+        if a.max_series_calls is not None and calls[0] >= a.max_series_calls:
+            return "series_limit"
+
+    def player(*args, **kw):
+        if a.max_series_calls is not None:
+            kw["call_cap"] = a.max_series_calls - calls[0]
+        r = play(*args, **kw)
+        calls[0] += r["tool_calls"]
+        return r
+    summary = run_series(a.levels, a.out, notebook=notebook, player=player, gate=gate,
+                         gated=not a.ungated, max_nudges=a.max_nudges,
                          window=window, across_windows=a.across_windows, model=a.model,
                          effort=a.effort, max_tool_calls=a.max_tool_calls,
-                         max_minutes=a.max_minutes, notes_minutes=a.notes_minutes,
-                         max_usage=a.max_usage, max_level_usage=a.max_level_usage,
+                         max_minutes=a.max_minutes or None, idle_minutes=a.idle_minutes,
+                         notes_minutes=a.notes_minutes,
+                         max_usage=a.max_usage, max_level_usage=a.max_level_usage or None,
+                         wait_for_reset=a.wait_for_reset,
                          level_budget=a.level_budget or None, show_budget=not a.hide_budget,
                          log=lambda m: print(m, file=sys.stderr))
     print(f"{summary['solved']}/{summary['played']} solved")

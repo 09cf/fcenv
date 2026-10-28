@@ -12,7 +12,7 @@ from anthropic.types import Message  # noqa: E402
 
 from fcenv import harness  # noqa: E402
 from fcenv.session import Notebook  # noqa: E402
-from tests.test_edit import LEVEL  # noqa: E402
+from tests.test_edit import LEVEL, SOLVED  # noqa: E402
 
 
 class FakeClient:
@@ -63,7 +63,8 @@ class _Stream:
 def play(turns, **kw):
     out = Path(tempfile.mkdtemp())
     client = FakeClient(turns, kw.pop("stop_reason", None))
-    r = harness.play(LEVEL, out, client=client, log=lambda m: None, **kw)
+    r = harness.play(kw.pop("level", SOLVED), out, client=client, log=lambda m: None,
+                     **kw)
     return r, out, client
 
 
@@ -103,7 +104,7 @@ class TestHarness(unittest.TestCase):
                           (4, "t4_0")])
         md = (out / "transcript.md").read_text()
         self.assertTrue(md.startswith("# "))
-        self.assertIn("**Not solved** (submitted); 6 tool calls, 4 turns", md)
+        self.assertIn("**Solved at tick 1** (submitted); 6 tool calls, 4 turns", md)
         self.assertIn("## Turn 4", md)
         self.assertIn('**→ add_rod**(kind="wood", a="0:1", b={"from": "0:1", "offset": [60, 0]})',
                       md)
@@ -128,8 +129,8 @@ class TestHarness(unittest.TestCase):
         log = [json.loads(s) for s in (out / "tools.jsonl").read_text().splitlines()]
         versions = [json.loads(s) for s in (out / "versions.jsonl").read_text().splitlines()]
         self.assertEqual([v["version"] for v in versions], list(range(len(versions))))
-        self.assertEqual(versions[0]["xml"], LEVEL)
-        s = harness.Session(LEVEL)
+        self.assertEqual(versions[0]["xml"], SOLVED)
+        s = harness.Session(SOLVED)
         for e in log:
             harness.tools.dispatch(s, e["tool"], e["args"])
             self.assertEqual(s.xml, versions[e["version_after"]]["xml"], e["tool"])
@@ -142,15 +143,25 @@ class TestHarness(unittest.TestCase):
         self.assertEqual([b["is_error"] for b in results], [True, True])
 
     def test_tool_limit_evaluates_the_current_design(self):
-        r, _, client = play([[("describe", {})]] * 5, max_tool_calls=3)
+        r, _, client = play([[("describe", {})]] * 5, max_tool_calls=3, level=LEVEL)
         self.assertEqual((r["stop"], r["tool_calls"], r["turns"]), ("tool_limit", 3, 3))
         self.assertFalse(r["submitted_by_agent"])
         self.assertFalse(r["solved"])
 
+    def test_only_the_agents_own_solves_count(self):
+        # the design solves, but the agent never ran it: only the evaluation saw it
+        r, _, _ = play([[("describe", {})]] * 2, max_tool_calls=1)
+        self.assertEqual((r["solved"], r["solved_at_end"]), (False, True))
+        self.assertIsNotNone(r["solve_tick"])
+        # its own run of the design as it ended counts, without a submit
+        r, _, _ = play([[("run", {})]] * 2, max_tool_calls=1)
+        self.assertEqual((r["solved"], r["solved_at_end"]), (True, False))
+
     def test_nudges_then_gives_up(self):
-        r, _, client = play(["thinking out loud", [("describe", {})], "done?", "really done"],
-                            max_nudges=2)
-        self.assertEqual((r["stop"], r["nudges"], r["turns"]), ("gave_up", 2, 4))
+        # nudges in a row: a tool call starts the count again
+        r, _, client = play(["thinking out loud", [("describe", {})], "done?", "really done",
+                             "still done"], max_nudges=2)
+        self.assertEqual((r["stop"], r["nudges"], r["turns"]), ("gave_up", 3, 5))
         self.assertIn("No one is here", client.requests[1]["messages"][-1]["content"][0]["text"])
 
     def test_turn_limit_and_refusal(self):
@@ -184,7 +195,7 @@ class TestHarness(unittest.TestCase):
     def test_notes_are_free_and_work_after_the_level(self):
         nb = Notebook(cap=20)
         r, out, client = play([
-            [("write_notes", {"text": "a"}), ("describe", {})],  # describe: the one call
+            [("write_notes", {"text": "a"}), ("run", {})],  # run: the one call
             # the level is over (out of calls): the notes phase
             [("write_notes", {"text": "far too long for the cap"})],
             [("write_notes", {"text": "b"})],
@@ -197,7 +208,7 @@ class TestHarness(unittest.TestCase):
         msgs = client.requests[1]["messages"]
         self.assertEqual([m["role"] for m in msgs], ["user", "assistant", "user", "user"])
         self.assertIn("You ran out of tool calls, so your design as it was got evaluated: "
-                      "Not solved.", msgs[3]["content"][0]["text"])
+                      "Solved at tick 1.", msgs[3]["content"][0]["text"])
         md = (out / "transcript.md").read_text()
         self.assertIn("**Harness:**\n\n> The level is over.", md)
         self.assertIn("**→ write_notes**()\n\n```text\nb\n```", md)
@@ -205,7 +216,7 @@ class TestHarness(unittest.TestCase):
         self.assertIn("Too long", msgs[5]["content"][0]["content"][0]["text"])
         log = [json.loads(s) for s in (out / "tools.jsonl").read_text().splitlines()]
         self.assertEqual([(e["tool"], e["ok"]) for e in log],
-                         [("write_notes", True), ("describe", True), ("write_notes", False),
+                         [("write_notes", True), ("run", True), ("write_notes", False),
                           ("write_notes", True)])
 
     def test_notes_written_as_text_get_a_reminder(self):
@@ -222,7 +233,7 @@ class TestHarness(unittest.TestCase):
 
     def test_series_carries_notes_over(self):
         d = Path(tempfile.mkdtemp())
-        (d / "lvl.xml").write_text(LEVEL)
+        (d / "lvl.xml").write_text(SOLVED)
         client = FakeClient([
             [("submit", {})], [("write_notes", {"text": "rods fold; triangulate"})], "done",
             [("submit", {})], "nothing new"])
@@ -230,7 +241,7 @@ class TestHarness(unittest.TestCase):
         summary = harness.run_series([d / "lvl.xml"] * 2, d / "out", notebook=nb,
                                      client=client, log=lambda m: None)
         self.assertEqual([r["level"] for r in summary["levels"]], ["lvl", "lvl-2"])
-        self.assertEqual((summary["played"], summary["solved"]), (2, 0))
+        self.assertEqual((summary["played"], summary["solved"]), (2, 2))
         first = client.requests[0]["messages"][0]["content"][0]["text"]
         self.assertIn("level 1 of 2", first)
         self.assertIn("<notes>\n(empty)\n</notes>", first)
@@ -238,15 +249,33 @@ class TestHarness(unittest.TestCase):
         self.assertIn("level 2 of 2", second)
         self.assertIn("<notes>\nrods fold; triangulate\n</notes>", second)
         self.assertEqual(len(client.requests[3]["messages"]), 1)  # a fresh conversation
-        self.assertIn("You submitted: Not solved.",
+        self.assertIn("You beat it: Solved at tick 1.",
                       client.requests[1]["messages"][-1]["content"][0]["text"])
         self.assertEqual((d / "out" / "notes.md").read_text(), "rods fold; triangulate")
         self.assertEqual((d / "out" / "lvl" / "notes.md").read_text(), "rods fold; triangulate")
         self.assertEqual(json.loads((d / "out" / "summary.json").read_text()), summary)
 
-    def test_budget(self):
+    def test_a_series_stops_at_an_unsolved_level(self):
         d = Path(tempfile.mkdtemp())
         (d / "lvl.xml").write_text(LEVEL)
+        # a refused submit, then out of calls: unsolved, with no notes phase
+        client = FakeClient([[("submit", {})], [("describe", {})], "x", "x", "x", "x"])
+        summary = harness.run_series([d / "lvl.xml"] * 2, d / "out", notebook=Notebook(),
+                                     client=client, max_tool_calls=2, log=lambda m: None)
+        self.assertEqual((summary["played"], summary["solved"]), (1, 0))
+        r = summary["levels"][0]
+        self.assertEqual((r["stop"], r["submitted_by_agent"], r["notes_turns"]),
+                         ("tool_limit", False, 0))
+        self.assertIn("Not submitted", client.requests[1]["messages"][-1]["content"][0]
+                      ["content"][0]["text"])
+        client = FakeClient([[("describe", {})]] * 2)
+        summary = harness.run_series([d / "lvl.xml"] * 2, d / "out2", client=client,
+                                     max_tool_calls=1, gated=False, log=lambda m: None)
+        self.assertEqual(summary["played"], 2)
+
+    def test_budget(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "lvl.xml").write_text(SOLVED)
         client = FakeClient([[("describe", {})]] * 5)
         # each fake turn costs 10 input and 5 output tokens: $0.000175 on Opus 5
         self.assertAlmostEqual(harness.cost("claude-opus-5",
@@ -260,8 +289,8 @@ class TestHarness(unittest.TestCase):
 
     def test_level_budget(self):
         d = Path(tempfile.mkdtemp())
-        (d / "lvl.xml").write_text(LEVEL)
-        client = FakeClient([[("describe", {})]] * 3 + [[("submit", {})]])
+        (d / "lvl.xml").write_text(SOLVED)
+        client = FakeClient([[("run", {})]] * 3 + [[("submit", {})]])
         summary = harness.run_series([d / "lvl.xml"] * 2, d / "out", level_budget=0.0003,
                                      client=client, model="claude-opus-5", log=lambda m: None)
         self.assertEqual([(r["stop"], r["turns"]) for r in summary["levels"]],

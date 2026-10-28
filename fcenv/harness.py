@@ -7,14 +7,19 @@ Levels are played in order, each as a fresh conversation, into OUT/<level
 name>/ (one level is just a series of one). The agent gets the task prompt as
 its first message and the tools in fcenv.tools. Each turn's tool calls go
 through tools.dispatch, in order, and their results (text and images) go back
-as tool results. A level ends when the agent submits, runs out of tool calls,
-or hits the turn limit; if the agent never submitted, the current design is
-evaluated as if it had (result.json says which).
+as tool results. A level ends when the agent submits (which only a design
+that beats the level can be), runs out of tool calls, or hits the turn
+limit; if the agent never submitted, the current design is evaluated as if
+it had (result.json says which). A level counts as solved only if the agent
+saw it solved, by submitting or in its latest run of the design as it ended
+(a solve only the evaluation found is solved_at_end). A series goes on only
+while levels are solved (unless --ungated).
+
 
 With notes on (--notes, or --notes-from FILE to start from earlier notes),
 the agent has a notebook that carries over between levels: it's in each
-level's prompt, write_notes replaces it, and after each level the agent is
-told the outcome and gets a few turns to update it.
+level's prompt, write_notes replaces it, and after each solved level the
+agent gets a few turns to update it.
 
 The history is append-only (images included), so the prompt cache and the
 model's earlier thinking stay valid for the whole level.
@@ -51,10 +56,14 @@ MODEL = "claude-opus-5"
 # $ per million tokens (input, output), for cost estimates only. Cache reads
 # are 0.1x input and (5-minute) cache writes 1.25x.
 PRICES = {"claude-opus-5": (5.0, 25.0), "claude-opus-5-5": (4.0, 20.0),
-          "claude-sonnet-5": (2.0, 10.0), "claude-haiku-4-5": (1.0, 5.0)}
+          "claude-sonnet-5": (2.0, 10.0), "claude-sonnet-5-5": (2.0, 10.0),
+          "claude-haiku-4-5": (1.0, 5.0),
+          "claude-haiku-5-5": (0.1, 0.5)}  # prompts up to 100K tokens; 5x beyond
 
-_NUDGE = ("(No one is here to reply. Keep going with the tools, and call submit "
-          "when you're done.)")
+_NUDGE = ("(No one is here to reply. The level isn't beaten yet, and the only way on is "
+          "to beat it: there's no stopping early. Keep going with the tools, trying "
+          "something you haven't tried yet, and call submit once your design beats the "
+          "level.)")
 _CUT_OFF = "Not run: your message was cut off (max_tokens) before this call was complete."
 _UNCHANGED = ("(Your notes are unchanged: that was a reply, not a write_notes call. "
               "Call write_notes to save notes; if you meant to leave them as they "
@@ -139,7 +148,7 @@ def _outcome(stop, run):
     verdict = (f"Solved at tick {run.solve_tick}." if run.solve_tick is not None
                else "Not solved.")
     if stop == "submitted":
-        return f"You submitted: {verdict}"
+        return f"You beat it: {verdict}"
     why = {"tool_limit": "You ran out of tool calls", "turn_limit": "You ran out of turns",
            "gave_up": "You stopped", "time_limit": "You ran out of time",
            "level_usage": "The level used up its share of the budget",
@@ -149,7 +158,7 @@ def _outcome(stop, run):
 
 
 def play(level_xml, out, client=None, model=MODEL, effort=None, max_tool_calls=None,
-         max_turns=300, max_nudges=2, max_tokens=32000, notebook=None, level=None,
+         max_turns=300, max_nudges=10, max_tokens=32000, notebook=None, level=None,
          levels_total=None, budget=None, spent=0.0, level_budget=None, show_budget=True,
          reflect_turns=4, log=print):
     """Play one level into directory `out`; returns the result dict (also
@@ -160,8 +169,10 @@ def play(level_xml, out, client=None, model=MODEL, effort=None, max_tool_calls=N
     not `show_budget`, and the notes phase still runs. `budget` (dollars for
     the series, `spent` already spent) stops everything. Tool calls are
     counted, not limited, unless `max_tool_calls` is given (the prompt then
-    says so); `max_turns` is a backstop. `notebook` (a session.Notebook)
-    turns notes on and is updated in place."""
+    says so); `max_turns` is a backstop. A reply without a tool call gets a
+    nudge to carry on, and `max_nudges` of them in a row end the level
+    (gave_up). `notebook` (a session.Notebook) turns notes on and is
+    updated in place."""
     if client is None:
         import anthropic
         client = anthropic.Anthropic(max_retries=6)
@@ -228,7 +239,7 @@ def play(level_xml, out, client=None, model=MODEL, effort=None, max_tool_calls=N
 
     say(docs.task_prompt(session, level, levels_total))
     record.sync(session)
-    turns = nudges = reflected = 0
+    turns = nudges = quiet = reflected = 0  # quiet: nudges since the last tool call
     stop = None
     start = time.time()
     try:
@@ -241,6 +252,7 @@ def play(level_xml, out, client=None, model=MODEL, effort=None, max_tool_calls=N
             if response.stop_reason == "refusal":
                 stop = "refusal"
             elif calls:
+                quiet = 0
                 answer(response, calls, turns)
                 if session.done:
                     stop = "submitted"
@@ -249,8 +261,8 @@ def play(level_xml, out, client=None, model=MODEL, effort=None, max_tool_calls=N
                     stop = "tool_limit"
             elif response.stop_reason == "pause_turn":
                 continue  # resend as is; the model picks up where it left off
-            elif nudges < max_nudges:
-                nudges += 1
+            elif quiet < max_nudges:
+                nudges, quiet = nudges + 1, quiet + 1
                 say(_TOO_LONG.format(max_tokens=max_tokens)
                     if response.stop_reason == "max_tokens" else _NUDGE)
             else:
@@ -259,10 +271,10 @@ def play(level_xml, out, client=None, model=MODEL, effort=None, max_tool_calls=N
                 stop = "budget"
             if stop is None and level_cap is not None and level_cap.over:
                 stop = "level_budget"
-        submitted = session.done
-        if not submitted:
-            session.submit()  # evaluate the current design, outside the log
-        if notebook is not None and stop not in ("refusal", "budget"):
+        if not session.done:
+            session.evaluate()
+        if notebook is not None and session.solved_by_agent \
+                and stop not in ("refusal", "budget"):
             say(_REFLECT.format(outcome=_outcome(stop, session.final)))
             first, reminded = len(session.log), False
             while reflected < reflect_turns and not over_budget():
@@ -299,9 +311,11 @@ def finish(out, session, fields):
     result.json (`fields` plus the outcome), final design files and
     readable transcript (transcript.md)."""
     if session.final is None:
-        session.submit()  # evaluate the current design, outside the log
+        session.evaluate()
     run = session.final
-    result = dict(fields, solved=run.solve_tick is not None, solve_tick=run.solve_tick,
+    solved = session.solved_by_agent
+    result = dict(fields, solved=solved, solve_tick=run.solve_tick,
+                  solved_at_end=not solved and run.solve_tick is not None,
                   tool_calls=session.tool_calls)
     (out / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     (out / "final.xml").write_text(session.xml)
@@ -316,11 +330,12 @@ def finish(out, session, fields):
 
 
 def run_series(paths, out, notebook=None, budget=None, log=print, player=None, gate=None,
-               **kw):
+               gated=True, **kw):
     """Play the level files `paths` in order into OUT/<level name>/, with
     `notebook` (if any) carrying over. Stops starting levels once `budget`
     dollars are spent, or after a level stopped for a budget or usage limit,
-    or when `gate()` gives a reason not to start the next level.
+    or when `gate()` gives a reason not to start the next level, or (if
+    `gated`) after a level that wasn't solved.
     `player` plays a level (default: play, through the API; see cc.play for
     Claude Code). Returns the summary (also written to summary.json)."""
     out = Path(out)
@@ -360,8 +375,11 @@ def run_series(paths, out, notebook=None, budget=None, log=print, player=None, g
         (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
         if notebook is not None:
             (out / "notes.md").write_text(notebook.text)
-        if r["stop"] in ("budget", "usage_limit", "window_reset"):
+        if r["stop"] in ("budget", "usage_limit", "window_reset", "series_limit"):
             log(f"stopped ({r['stop']}): not playing the rest")
+            break
+        if gated and not r["solved"]:
+            log("not solved: not playing the rest")
             break
     return summary
 
@@ -375,6 +393,12 @@ def main(argv=None):
     p.add_argument("--max-tool-calls", type=int, help="per level; none by default (the "
                    "agent is told about a limit when there is one)")
     p.add_argument("--max-turns", type=int, default=300, help="per level")
+    p.add_argument("--max-nudges", type=int, default=10,
+                   help="end a level after this many replies in a row without a tool call "
+                        "(each gets a nudge to carry on)")
+    p.add_argument("--ungated", action="store_true",
+                   help="play every level, solved or not (by default a series stops at "
+                        "the first level that isn't solved)")
     p.add_argument("--notes", action="store_true", help="keep a notebook across levels")
     p.add_argument("--notes-from", metavar="FILE", help="start the notebook from FILE "
                    "(e.g. an earlier series' notes.md); implies --notes")
@@ -400,6 +424,7 @@ def main(argv=None):
         print(docs.task_prompt(s, 1, len(a.levels)))
         return 0
     summary = run_series(a.levels, a.out, notebook=notebook, budget=a.budget,
+                         gated=not a.ungated, max_nudges=a.max_nudges,
                          model=a.model, effort=a.effort, max_tool_calls=a.max_tool_calls,
                          max_turns=a.max_turns, level_budget=a.level_budget or None,
                          show_budget=not a.hide_budget,

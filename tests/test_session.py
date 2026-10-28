@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fcenv.session import Session  # noqa: E402
 from fcenv.tools import TOOLS, dispatch  # noqa: E402
-from tests.test_edit import LEVEL  # noqa: E402
+from tests.test_edit import LEVEL, SOLVED  # noqa: E402
 
 
 def call(s, tool, **args):
@@ -155,16 +155,28 @@ class TestTools(unittest.TestCase):
         self.assertIn("the design has changed since this run", text)
 
     def test_submit_ends_the_session_and_everything_is_logged(self):
-        s = Session(LEVEL, max_tool_calls=10)
+        s = Session(SOLVED, max_tool_calls=10)
         call(s, "add_rod", kind="water", a=[60, 60], b=[120, 60])
         ok, text, _ = call(s, "submit")
-        self.assertTrue(text.startswith("Submitted. Not solved."))
+        self.assertEqual((ok, text), (True, "Submitted. Solved at tick 1. The session has ended."))
         ok, text, _ = call(s, "describe")
         self.assertFalse(ok)
         self.assertEqual(s.tool_calls, 3)
         log = [json.loads(line) for line in s.log_jsonl().splitlines()]
         self.assertEqual([e["tool"] for e in log], ["add_rod", "submit", "describe"])
         self.assertEqual((log[0]["version_before"], log[0]["version_after"]), (0, 1))
+
+    def test_only_a_solved_design_can_be_submitted(self):
+        s = Session(LEVEL)
+        ok, text, _ = call(s, "submit")
+        self.assertFalse(ok)
+        self.assertTrue(text.startswith("Not submitted: this design doesn't beat the level"))
+        self.assertIn("Not solved: ran the full 6000 ticks", text)
+        self.assertEqual((s.done, s.final), (False, None))
+        ok, _, _ = call(s, "describe")  # the session goes on
+        self.assertTrue(ok)
+        self.assertIsNone(s.evaluate().solve_tick)  # a limit's evaluation ends it
+        self.assertTrue(s.done)
 
     def test_tool_call_limit(self):
         s = Session(LEVEL, max_tool_calls=2)

@@ -86,7 +86,8 @@ class Session:
         self._rejected = False  # an edit was rejected since the last run
         self.log = []
         self.done = False
-        self.final = None  # the submitted evaluation run
+        self.final = None  # the evaluation run: the submitted one, or evaluate()'s
+        self.submitted = False
 
     @property
     def xml(self):
@@ -304,12 +305,37 @@ class Session:
     # ------------------------------------------------------------ end
 
     def submit(self):
+        """Only a design that beats the level is accepted: one that doesn't is
+        refused, and the session goes on."""
         r = runs.simulate(self.xml, timeout=self.submit_timeout)
+        if r.solve_tick is None:
+            return Result(False, "Not submitted: this design doesn't beat the level, and "
+                                 "only one that does can be submitted. The check run:\n"
+                                 + r.summary() + "\nThe session goes on.")
         self.final = r
         self.done = True
-        verdict = (f"Solved at tick {r.solve_tick}." if r.solve_tick is not None
-                   else "Not solved.")
-        return Result(True, f"Submitted. {verdict} The session has ended.")
+        self.submitted = True
+        return Result(True, f"Submitted. Solved at tick {r.solve_tick}. The session has ended.")
+
+    def evaluate(self):
+        """Run the current design as submit would, outside the log, when a
+        level ends without a submission; ends the session."""
+        self.final = runs.simulate(self.xml, timeout=self.submit_timeout)
+        self.done = True
+        return self.final
+
+    @property
+    def solved_by_agent(self):
+        """Whether the agent saw its design beat the level: it submitted, or
+        its latest run was of the design as it is and solved. A solve that
+        only evaluate() found (say a run cut short by a limit, or one longer
+        than the agent's own runs) doesn't count."""
+        if self.submitted:
+            return True
+        if self.last_run is None:
+            return False
+        r, v = self.last_run
+        return self.versions[v] == self.xml and r.solve_tick is not None
 
     def log_jsonl(self):
         return "\n".join(json.dumps(e) for e in self.log)

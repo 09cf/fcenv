@@ -22,10 +22,7 @@ def task_prompt(session, level=None, levels=None):
         budget = """\
 This level has a budget for your work, spent by thinking, writing and
 reading. Each tool result ends with how much of it is used. If
-it runs out, the level ends and your design is evaluated as it is. An
-unsolved design scores nothing whether you submit it or not, so there's no
-reason to submit one early: keep trying until it's solved or the budget runs
-out.
+it runs out, the level ends and your design is evaluated as it is.
 
 """
     nb = session.notebook
@@ -38,8 +35,8 @@ out.
 You're playing a series of levels{which}. Each level starts a fresh
 conversation, and only your notebook carries over: it's below, and
 write_notes replaces it (at most {nb.cap} characters). write_notes works at
-any time, even after submit.{free} When a level ends, you'll be told the
-outcome and can update your notes.
+any time, even after submit.{free} You go on to the next level only by
+beating this one. Once you have, you can update your notes.
 
 Your notes so far:
 <notes>
@@ -65,10 +62,11 @@ Joints are named "block:slot", e.g. "3:1", as labelled in images.
 
 Start with describe and view to see the level. Build with the build tools,
 check your machine with run and the run images, and adjust. Save designs you
-may want to return to. When you're satisfied, call submit: your design is
-run once more, for up to {session.submit_timeout // 30} seconds, and the
-session ends. It counts as beaten if all goal pieces are inside the goal
-area at the same moment during that run.{limit}
+may want to return to. When your design beats the level, call submit: it's
+run once more, for up to {session.submit_timeout // 30} seconds, and if all
+goal pieces are inside the goal area at the same moment during that run, the
+level is beaten and the session ends. submit only accepts a design that
+beats the level: if it doesn't, submit says so and you carry on.{limit}
 
 {budget}The help tool has details on: {", ".join(HELP)}.
 {notes}"""
@@ -190,5 +188,6 @@ with something attached. Grid values are along the edges.""",
 undo and redo step through your changes. save stores the current design
 under a name; load brings one back (and can itself be undone); list_saves
 lists them. load("start") goes back to the level as given, to start over.
-submit ends the session: only call it when you're done.""",
+submit ends the session, once your design beats the level (it doesn't
+accept one that doesn't).""",
 }

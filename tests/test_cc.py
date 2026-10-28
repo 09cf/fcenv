@@ -11,20 +11,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fcenv import cc, harness  # noqa: E402
 from fcenv.session import Notebook  # noqa: E402
-from tests.test_edit import LEVEL  # noqa: E402
+from tests.test_edit import LEVEL, SOLVED  # noqa: E402
 
 FAKE = [sys.executable, str(Path(__file__).resolve().parent / "fake_claude.py")]
 
 
-def play(runs, usage=(0.1, 0.0), delay=0, model="fake-model", resets=(1e10,), **kw):
+def play(runs, usage=(0.1, 0.0), delay=0, model="fake-model", resets=(1e10,), run_usage=None,
+         **kw):
     d = Path(tempfile.mkdtemp())
     script = d / "script.json"
-    script.write_text(json.dumps({"runs": runs, "usage": list(usage), "delay": delay,
-                                  "model": model, "msg_usage": [1000, 100],
-                                  "resets": list(resets)}))
+    s = {"runs": runs, "usage": list(usage), "delay": delay, "model": model,
+         "msg_usage": [1000, 100], "resets": list(resets)}
+    if run_usage is not None:
+        s["run_usage"] = run_usage
+    script.write_text(json.dumps(s))
     import os
     os.environ["FAKE_CLAUDE_SCRIPT"] = str(script)
-    r = cc.play(LEVEL, d / "out", claude=FAKE, log=lambda m: None, **kw)
+    r = cc.play(kw.pop("level", SOLVED), d / "out", claude=FAKE, log=lambda m: None,
+                **kw)
     args = [json.loads(p.read_text()) for p in sorted(d.glob("script.args*"))]
     return r, d / "out", args
 
@@ -86,9 +90,16 @@ class TestClaudeCode(unittest.TestCase):
         self.assertEqual(args[1][args[1].index("--resume") + 1],
                          args[0][args[0].index("--session-id") + 1])
         self.assertIn("No one is here", args[1][args[1].index("-p") + 1])
-        self.assertIn("You submitted", args[2][args[2].index("-p") + 1])
+        self.assertIn("You beat it", args[2][args[2].index("-p") + 1])
         self.assertIn("notes are unchanged", args[3][args[3].index("-p") + 1])
         self.assertIn("<notes>", args[0][args[0].index("-p") + 1])
+
+    def test_nudges_in_a_row_end_the_level(self):
+        r, _, args = play([[[["describe", {}]], "stuck"], ["still stuck"],
+                           [[["describe", {}]], "stuck again"], ["no"], ["no"]], max_nudges=2)
+        # every run that stops gets a nudge; two quiet ones in a row end it
+        self.assertEqual((r["stop"], r["nudges"], len(args)), ("gave_up", 4, 5))
+        self.assertIn("no stopping early", args[1][args[1].index("-p") + 1])
 
     def test_usage_limit(self):
         r, _, args = play([[[["describe", {}]], [["describe", {}]], [["submit", {}]]]],
@@ -97,6 +108,32 @@ class TestClaudeCode(unittest.TestCase):
         self.assertLess(r["tool_calls"], 3)
         self.assertFalse(r["submitted_by_agent"])
 
+    def test_waiting_for_the_window_to_reset(self):
+        import time
+        waits = []
+        # the window fills up two calls in: claude is stopped, the driver
+        # waits for the reset, and the same conversation carries on
+        r, _, args = play([[[["describe", {}]], [["describe", {}]], [["describe", {}]],
+                            [["submit", {}]]], [[["submit", {}]]]],
+                          usage=(0.75, 0.04), delay=1, max_usage=0.8, max_level_usage=None,
+                          run_usage=[0.75, 0.0], resets=[time.time() + 100],
+                          wait_for_reset=True, sleep=waits.append, max_minutes=1)
+        self.assertEqual((r["stop"], r["solved"]), ("submitted", True))
+        self.assertEqual(len(waits), 1)
+        self.assertGreater(waits[0], 100)  # until the reset, plus the margin
+        self.assertEqual(r["paused_seconds"], round(waits[0]))
+        self.assertEqual(r["pauses"][0]["plan_usage"]["five_hour"][1], 0.83)
+        self.assertIn("--resume", args[1])
+        self.assertEqual(args[1][args[1].index("-p") + 1], cc._RESUME)
+        # without it, the level stops there
+        r, _, _ = play([[[["describe", {}]], [["describe", {}]], [["describe", {}]]]],
+                       usage=(0.75, 0.04), delay=1, max_usage=0.8)
+        self.assertEqual(r["stop"], "usage_limit")
+        # the 7-day window still stops it
+        r, _, _ = play([[[["describe", {}]]]], usage=(0.75, 0.0), max_usage=0.3,
+                       wait_for_reset=True, sleep=waits.append)
+        self.assertEqual((r["stop"], len(waits)), ("usage_limit", 1))
+
     def test_the_90_percent_warning_is_not_a_limit(self):
         r, _, _ = play([[[["describe", {}]], [["describe", {}]], [["submit", {}]]]],
                        usage=(0.88, 0.01), max_usage=1.0)
@@ -104,7 +141,7 @@ class TestClaudeCode(unittest.TestCase):
 
     def test_level_usage_limit(self):
         nb = Notebook()
-        r, _, args = play([[[["describe", {}]]] * 6, [[["write_notes", {"text": "x"}]], "ok"]],
+        r, _, args = play([[[["run", {}]]] * 6, [[["write_notes", {"text": "x"}]], "ok"]],
                           usage=(0.1, 0.04), delay=1, max_level_usage=0.1, notebook=nb)
         # first seen 0.14, then 0.18, 0.22, 0.26: stopped at the 4th turn's report,
         # before its call
@@ -146,6 +183,10 @@ class TestClaudeCode(unittest.TestCase):
         self.assertEqual((r["stop"], r["tool_calls"]), ("time_limit", 1))
         self.assertLess(time.time() - t0, 60)
 
+    def test_a_silent_claude_is_stopped_without_a_wall_clock(self):
+        r, _, _ = play([[[["describe", {}]], "hang"]], max_minutes=None, idle_minutes=0.05)
+        self.assertEqual((r["stop"], r["tool_calls"]), ("stalled", 1))
+
     def test_window_reset_stops_the_level(self):
         window = {}
         r, _, _ = play([[[["describe", {}]], [["describe", {}]], [["describe", {}]]]],
@@ -155,6 +196,12 @@ class TestClaudeCode(unittest.TestCase):
         r, _, _ = play([[[["describe", {}]], [["submit", {}]]]], delay=1,
                        resets=(1000, 2000), window={}, across_windows=True)
         self.assertEqual(r["stop"], "submitted")
+
+    def test_series_call_cap(self):
+        # hidden: stops mid-level once the series' calls run out, with no notes phase
+        r, _, args = play([[[["describe", {}]], [["describe", {}], ["view", {}]],
+                            [["submit", {}]]]], delay=1, call_cap=2, notebook=Notebook(""))
+        self.assertEqual((r["stop"], r["tool_calls"], len(args)), ("series_limit", 3, 1))
 
     def test_time_limit(self):
         r, _, _ = play([[[["describe", {}]], "sleep", [["submit", {}]]]], max_minutes=0.05)
@@ -168,7 +215,7 @@ class TestClaudeCode(unittest.TestCase):
         try:
             (d / "script.json").write_text(json.dumps({"runs": [[[["submit", {}]]]]}))
             os.environ["FAKE_CLAUDE_SCRIPT"] = str(d / "script.json")
-            r = cc.play(LEVEL, "out", claude=FAKE, log=lambda m: None)
+            r = cc.play(SOLVED, "out", claude=FAKE, log=lambda m: None)
             self.assertEqual(r["stop"], "submitted")
             fail = [sys.executable, "-c", "import sys; print('no login', file=sys.stderr); "
                                           "sys.exit(1)"]
@@ -182,7 +229,7 @@ class TestClaudeCode(unittest.TestCase):
         import os
         import time
         d = Path(tempfile.mkdtemp())
-        (d / "lvl.xml").write_text(LEVEL)
+        (d / "lvl.xml").write_text(SOLVED)
         script = d / "script.json"
         # the window the series starts in "resets" at t=1, long ago: the first
         # level plays (its own reports don't change), the second doesn't start
@@ -201,7 +248,7 @@ class TestClaudeCode(unittest.TestCase):
 
     def test_series(self):
         d = Path(tempfile.mkdtemp())
-        (d / "lvl.xml").write_text(LEVEL)
+        (d / "lvl.xml").write_text(SOLVED)
         script = d / "script.json"
         script.write_text(json.dumps({"runs": [[[["submit", {}]]], [[["submit", {}]]]],
                                       "usage": [0.2, 0.01]}))

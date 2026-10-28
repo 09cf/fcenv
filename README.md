@@ -6,6 +6,19 @@ An environment for playing Fantastic Contraption through an API.
   ctypes bindings. See `core/README.md`.
 - `fcenv/`: the Python layer agents use to build designs.
 - `tests/`: tests for `fcenv/` (see [Tests](#tests)).
+- `results/`: results worth keeping (see below).
+
+## Results
+
+[Levels 1-10: Claude models compared](results/levels-1-10/README.md). Four
+Claude models played the first ten official levels in order, with a
+notebook carried between levels. Opus 5.5 and Fable 5.1 solved all ten in
+under 200 tool calls, Sonnet 5.5 in 535, and Haiku 5.5 stopped at level 3.
+
+![Levels solved against cumulative tool calls and build runs](results/levels-1-10/compare.png)
+
+The game's levels aren't included: `python3 -m fcenv.levels` extracts them
+from the game's SWF (see [Levels and saving](#levels-and-saving)).
 
 ## Editing designs
 
@@ -147,8 +160,11 @@ world, since Box2D freezes it there and it never returns.
 version (undo/redo move between them), named saves (`start`, the level as
 given, is always there), the latest run, and a
 log entry per tool call (`log_jsonl()`), for recreating the whole session.
-`submit()` evaluates the design and ends the session. `max_tool_calls` caps
-the number of calls.
+`submit()` runs the design once more and, if that beats the level, ends the
+session; a design that doesn't beat it is refused (with the check run's
+summary) and the session goes on, so nothing unsolved can be submitted.
+`evaluate()` is the same run for a level that ends some other way (a
+limit). `max_tool_calls` caps the number of calls.
 
 `tools.TOOLS` are the agent-facing tool definitions (name, description,
 JSON input schema). `tools.dispatch(session, name, args)` runs one and
@@ -223,18 +239,29 @@ python3 -m fcenv.harness LEVEL.xml --out x --print-prompt   # no API calls
   there's no limit unless `--max-tool-calls` sets one, and then the prompt
   tells the agent. Cost is what `--budget` limits; `--max-turns` is a
   backstop against runaway loops.
-- If the agent replies without calling a tool, it's told no one is there
-  and to carry on; if its reply was cut off at `max_tokens`, it's told that
-  instead (twice in all, then the level ends). Turns longer than 30 s log
-  progress.
-- A level ends on submit, the tool-call limit, the turn limit, a refusal
-  or the budget. If the agent didn't submit, the current design is
-  evaluated anyway; `submitted_by_agent` in `result.json` records which.
+- If the agent replies without calling a tool, it's told no one is there,
+  that the only way on is to beat the level, and to carry on; if its reply
+  was cut off at `max_tokens`, it's told that instead. `--max-nudges` (10)
+  such replies in a row, with no tool call in between, end the level
+  (`gave_up`): as in Inspect's ReAct agent, going quiet doesn't end a level,
+  only a limit does, but this one stops a model that has truly stopped.
+  Turns longer than 30 s log progress.
+- A level ends on submit (only possible once the design beats it), the
+  tool-call limit, the turn limit, a refusal or the budget. If the agent
+  didn't submit, the current design is evaluated anyway;
+  `submitted_by_agent` in `result.json` records which. A level counts as
+  `solved` only if the agent saw it solved: it submitted, or its latest run
+  was of the design as it ended and solved. A solve that only the end
+  evaluation found (e.g. after a solve tick past the agent's own shorter
+  runs) is recorded as `solved_at_end` instead, and gates like a failure.
+- **Progress is gated**: a series stops at the first level that isn't
+  solved, as the agent is told. `--ungated` plays every level regardless,
+  for levels played independently (no notes).
 - **Notes** (off unless `--notes` or `--notes-from`): a notebook
   (`session.Notebook`, capped at `--notes-cap` characters) carries over
   between levels. It's in each level's prompt, and `write_notes` replaces
   it; writing notes is free (no tool call used) and works after submit.
-  After each level the agent is told the outcome and gets up to 4 turns to
+  After each solved level the agent gets up to 4 turns to
   update its notes (a reply without a write_notes call gets one reminder
   that the notes are unchanged). `--notes-from` starts from earlier notes, e.g. to try
   one level with what a series learned.
@@ -282,7 +309,7 @@ the loop, e.g. on a Claude subscription instead of API credits (needs
 python3 -m fcenv.cc LEVEL.xml [LEVEL.xml ...] --out runs/cc1 [--model M]
     [--effort E] [--level-budget 3] [--hide-budget] [--max-minutes 30]
     [--max-usage 0.8] [--max-level-usage 0.3] [--across-windows]
-    [--notes | --notes-from NOTES.md]
+    [--max-series-calls N] [--wait-for-reset] [--notes | --notes-from NOTES.md]
 ```
 
 - The tools are served over MCP from the driver's process
@@ -297,12 +324,28 @@ python3 -m fcenv.cc LEVEL.xml [LEVEL.xml ...] --out runs/cc1 [--model M]
   from the same token counts (Claude Code reports each message's usage),
   so the agent sees the same thing either way; `list_price_cost` in
   `result.json` is what the level would have cost on the API.
-- Hidden backstops: wall clock per level (`--max-minutes`, plus
-  `--notes-minutes` for the notes phase), and plan usage, which Claude Code
+- Hidden backstops: wall clock per level (`--max-minutes`, 0 for none,
+  plus `--notes-minutes` for the notes phase), a claude run that writes
+  nothing for `--idle-minutes` (20; stop `stalled`, as hung), and plan usage, which Claude Code
   reports (how full the 5-hour and 7-day windows are). A level stops once
   it has used `--max-level-usage` of either window itself (stop
   `level_usage`; its notes phase still runs and the series goes on), and
   everything stops once either window passes `--max-usage`.
+- `--max-series-calls` is a hidden cutoff for the whole series, in tool
+  calls: once the series' levels have made that many, the level playing
+  stops (stop `series_limit`, no notes phase) and no further level starts.
+  It's for comparing models with `--level-budget 0`, so a weaker model
+  can't play on indefinitely.
+- `--wait-for-reset`: when the 5-hour window passes `--max-usage`, claude
+  is stopped, the driver waits for the window to reset and resumes the same
+  conversation ("Carry on where you left off."), with the tool server (and
+  so the session) up throughout. The wall clock stops meanwhile, and
+  `pauses` in `result.json` lists the waits. A level can take as long as
+  it needs this way: on a Pro plan, one long level can use more than a
+  whole 5-hour window. A call in flight when claude is stopped gets no
+  result, so the agent may repeat it. The 7-day window still stops
+  everything. With `--max-level-usage 0` (no per-level share) it makes
+  `--max-series-calls` the only cutoff besides the wall clock.
 - A run stays in the 5-hour window it started in: when that window resets
   (Claude Code reports when it will), the level stops and no further level
   starts (stop `window_reset`), unless `--across-windows`.
@@ -323,6 +366,13 @@ calls in red, the images the agent looked at, and its runs and the
 submission re-simulated and played in real time (sped up past `--max-run`
 seconds). The call and its result are captioned on top, and the agent's
 words for that turn at the bottom.
+
+To compare series (e.g. models), `python3 -m fcenv.compare SERIES_DIR ...
+--out runs/compare.png` (needs matplotlib) plots levels solved against
+cumulative tool calls and against cumulative `run` calls, one step line per
+series (a cross where one stopped unsolved). It also writes the numbers
+(`compare.json`) and a per-level Markdown table with token totals
+(`compare.md`).
 
 ## Tests
 
