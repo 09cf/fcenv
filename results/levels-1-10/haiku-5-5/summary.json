@@ -1,0 +1,133 @@
+{
+  "levels": [
+    {
+      "level": "01-rolling-away",
+      "runner": "claude-code",
+      "model": "claude-haiku-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 16,
+      "nudges": 0,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 28,
+        "cache_creation_input_tokens": 29685,
+        "cache_read_input_tokens": 246172,
+        "output_tokens": 13897
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.0131,
+      "cc_cost_estimate": 0.0296,
+      "plan_usage": {
+        "five_hour": [
+          0.06,
+          0.08
+        ],
+        "seven_day": [
+          0.01,
+          0.01
+        ]
+      },
+      "pauses": [],
+      "paused_seconds": 0,
+      "error": null,
+      "seconds": 81.7,
+      "solved": true,
+      "solve_tick": 112,
+      "solved_at_end": false,
+      "tool_calls": 16
+    },
+    {
+      "level": "02-reach-up",
+      "runner": "claude-code",
+      "model": "claude-haiku-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 170,
+      "nudges": 20,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 198,
+        "cache_creation_input_tokens": 168673,
+        "cache_read_input_tokens": 9985648,
+        "output_tokens": 112255
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.1771,
+      "cc_cost_estimate": 9.2603,
+      "plan_usage": {
+        "five_hour": [
+          0.08,
+          0.15
+        ],
+        "seven_day": [
+          0.01,
+          0.01
+        ]
+      },
+      "pauses": [],
+      "paused_seconds": 0,
+      "error": null,
+      "seconds": 680.2,
+      "solved": true,
+      "solve_tick": 47,
+      "solved_at_end": false,
+      "tool_calls": 147
+    },
+    {
+      "level": "03-mind-the-gap",
+      "runner": "claude-code",
+      "model": "claude-haiku-5-5",
+      "effort": null,
+      "stop": "gave_up",
+      "submitted_by_agent": false,
+      "max_tool_calls": null,
+      "turns": 173,
+      "nudges": 32,
+      "notes_turns": 0,
+      "usage": {
+        "input_tokens": 210,
+        "cache_creation_input_tokens": 202880,
+        "cache_read_input_tokens": 13255961,
+        "output_tokens": 142634
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.2293,
+      "cc_cost_estimate": 22.3186,
+      "plan_usage": {
+        "five_hour": [
+          0.15,
+          0.29
+        ],
+        "seven_day": [
+          0.01,
+          0.03
+        ]
+      },
+      "pauses": [],
+      "paused_seconds": 0,
+      "error": null,
+      "seconds": 890.9,
+      "solved": false,
+      "solve_tick": null,
+      "solved_at_end": false,
+      "tool_calls": 138
+    }
+  ],
+  "solved": 2,
+  "played": 3,
+  "cost": 0.0
+}

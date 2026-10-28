@@ -1,0 +1,389 @@
+[
+  {
+    "name": "cmp-haiku-5-5",
+    "model": "claude-haiku-5-5",
+    "levels": [
+      {
+        "level": "01-rolling-away",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 16,
+        "runs": 3,
+        "nudges": 0,
+        "output_tokens": 13897,
+        "input_tokens": 275885,
+        "seconds": 81.7
+      },
+      {
+        "level": "02-reach-up",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 147,
+        "runs": 34,
+        "nudges": 20,
+        "output_tokens": 112255,
+        "input_tokens": 10154519,
+        "seconds": 680.2
+      },
+      {
+        "level": "03-mind-the-gap",
+        "solved": false,
+        "stop": "gave_up",
+        "tool_calls": 138,
+        "runs": 32,
+        "nudges": 32,
+        "output_tokens": 142634,
+        "input_tokens": 13459051,
+        "seconds": 890.9
+      }
+    ]
+  },
+  {
+    "name": "cmp-sonnet-5-5",
+    "model": "claude-sonnet-5-5",
+    "levels": [
+      {
+        "level": "01-rolling-away",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 22,
+        "runs": 8,
+        "nudges": 0,
+        "output_tokens": 4352,
+        "input_tokens": 174571,
+        "seconds": 47.3
+      },
+      {
+        "level": "02-reach-up",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 247,
+        "runs": 62,
+        "nudges": 0,
+        "output_tokens": 91189,
+        "input_tokens": 10581528,
+        "seconds": 1038.6
+      },
+      {
+        "level": "03-mind-the-gap",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 17,
+        "runs": 4,
+        "nudges": 0,
+        "output_tokens": 4992,
+        "input_tokens": 166880,
+        "seconds": 56.0
+      },
+      {
+        "level": "04-junkyard",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 75,
+        "runs": 18,
+        "nudges": 0,
+        "output_tokens": 34176,
+        "input_tokens": 1774712,
+        "seconds": 359.5
+      },
+      {
+        "level": "05-the-wall",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 16,
+        "runs": 3,
+        "nudges": 0,
+        "output_tokens": 5799,
+        "input_tokens": 173021,
+        "seconds": 54.6
+      },
+      {
+        "level": "06-on-a-roll",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 20,
+        "runs": 6,
+        "nudges": 0,
+        "output_tokens": 5439,
+        "input_tokens": 180441,
+        "seconds": 63.4
+      },
+      {
+        "level": "07-full-up",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 17,
+        "runs": 4,
+        "nudges": 0,
+        "output_tokens": 9034,
+        "input_tokens": 251758,
+        "seconds": 81.6
+      },
+      {
+        "level": "08-higher",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 89,
+        "runs": 20,
+        "nudges": 0,
+        "output_tokens": 23382,
+        "input_tokens": 1504899,
+        "seconds": 278.7
+      },
+      {
+        "level": "09-around-the-bend",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 11,
+        "runs": 3,
+        "nudges": 0,
+        "output_tokens": 8761,
+        "input_tokens": 154830,
+        "seconds": 85.9
+      },
+      {
+        "level": "10-up-the-hump",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 21,
+        "runs": 5,
+        "nudges": 0,
+        "output_tokens": 8652,
+        "input_tokens": 266571,
+        "seconds": 82.2
+      }
+    ]
+  },
+  {
+    "name": "cmp-opus-5-5",
+    "model": "claude-opus-5-5",
+    "levels": [
+      {
+        "level": "01-rolling-away",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 5,
+        "runs": 1,
+        "nudges": 0,
+        "output_tokens": 2035,
+        "input_tokens": 55481,
+        "seconds": 28.1
+      },
+      {
+        "level": "02-reach-up",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 6,
+        "runs": 1,
+        "nudges": 0,
+        "output_tokens": 2740,
+        "input_tokens": 80113,
+        "seconds": 41.5
+      },
+      {
+        "level": "03-mind-the-gap",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 6,
+        "runs": 1,
+        "nudges": 0,
+        "output_tokens": 3162,
+        "input_tokens": 68105,
+        "seconds": 35.6
+      },
+      {
+        "level": "04-junkyard",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 13,
+        "runs": 3,
+        "nudges": 0,
+        "output_tokens": 5044,
+        "input_tokens": 156787,
+        "seconds": 56.8
+      },
+      {
+        "level": "05-the-wall",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 28,
+        "runs": 6,
+        "nudges": 0,
+        "output_tokens": 9976,
+        "input_tokens": 407560,
+        "seconds": 108.6
+      },
+      {
+        "level": "06-on-a-roll",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 7,
+        "runs": 1,
+        "nudges": 0,
+        "output_tokens": 4423,
+        "input_tokens": 108712,
+        "seconds": 48.9
+      },
+      {
+        "level": "07-full-up",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 16,
+        "runs": 3,
+        "nudges": 0,
+        "output_tokens": 5675,
+        "input_tokens": 175272,
+        "seconds": 60.6
+      },
+      {
+        "level": "08-higher",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 15,
+        "runs": 2,
+        "nudges": 0,
+        "output_tokens": 8447,
+        "input_tokens": 222070,
+        "seconds": 94.1
+      },
+      {
+        "level": "09-around-the-bend",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 13,
+        "runs": 2,
+        "nudges": 0,
+        "output_tokens": 10834,
+        "input_tokens": 279617,
+        "seconds": 119.8
+      },
+      {
+        "level": "10-up-the-hump",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 36,
+        "runs": 7,
+        "nudges": 0,
+        "output_tokens": 17118,
+        "input_tokens": 823818,
+        "seconds": 193.0
+      }
+    ]
+  },
+  {
+    "name": "cmp-fable-5-1",
+    "model": "claude-fable-5-1",
+    "levels": [
+      {
+        "level": "01-rolling-away",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 11,
+        "runs": 1,
+        "nudges": 0,
+        "output_tokens": 5133,
+        "input_tokens": 97181,
+        "seconds": 76.4
+      },
+      {
+        "level": "02-reach-up",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 6,
+        "runs": 1,
+        "nudges": 0,
+        "output_tokens": 5072,
+        "input_tokens": 83658,
+        "seconds": 70.5
+      },
+      {
+        "level": "03-mind-the-gap",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 6,
+        "runs": 1,
+        "nudges": 0,
+        "output_tokens": 9140,
+        "input_tokens": 103523,
+        "seconds": 140.6
+      },
+      {
+        "level": "04-junkyard",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 65,
+        "runs": 9,
+        "nudges": 0,
+        "output_tokens": 259557,
+        "input_tokens": 7592619,
+        "seconds": 4110.6
+      },
+      {
+        "level": "05-the-wall",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 9,
+        "runs": 1,
+        "nudges": 0,
+        "output_tokens": 21646,
+        "input_tokens": 244383,
+        "seconds": 311.7
+      },
+      {
+        "level": "06-on-a-roll",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 9,
+        "runs": 1,
+        "nudges": 0,
+        "output_tokens": 26132,
+        "input_tokens": 255610,
+        "seconds": 400.1
+      },
+      {
+        "level": "07-full-up",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 7,
+        "runs": 1,
+        "nudges": 0,
+        "output_tokens": 13425,
+        "input_tokens": 154750,
+        "seconds": 2958.3
+      },
+      {
+        "level": "08-higher",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 8,
+        "runs": 1,
+        "nudges": 0,
+        "output_tokens": 28644,
+        "input_tokens": 228548,
+        "seconds": 383.3
+      },
+      {
+        "level": "09-around-the-bend",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 24,
+        "runs": 3,
+        "nudges": 0,
+        "output_tokens": 92889,
+        "input_tokens": 1139232,
+        "seconds": 1414.4
+      },
+      {
+        "level": "10-up-the-hump",
+        "solved": true,
+        "stop": "submitted",
+        "tool_calls": 26,
+        "runs": 3,
+        "nudges": 0,
+        "output_tokens": 55260,
+        "input_tokens": 1027011,
+        "seconds": 773.9
+      }
+    ]
+  }
+]

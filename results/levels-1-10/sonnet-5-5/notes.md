@@ -1,0 +1,13 @@
+General notes (Fantastic Contraption env):
+- Workflow: describe + view(level) first; bare run; then build; run_filmstrip/run_trails/run_frame with region to debug; save good states; submit when solved (run says "Solved" itself). Runs are cheap: iterate.
+- Joint args like "0:0". In build(), "@i:s" refs piece i's joint s in that call (wheels count as pieces; piece index = position in the batch, count carefully -> else shared_twice errors). Rods with free-point ends are NOT joined unless you reference an existing joint -> pieces fall apart! rewire's `to` takes bare joint like 1:3.
+- Wheel radius is 20 (centre must be >=20 above terrain, inside build area incl. rim). Wheel rim joints: slot1=right, 2=bottom, 3=left, 4=top.
+- Goal pieces can be moved (move_joint 0:0) within build area (not into terrain). Move ball BEFORE building if rods would overlap it. Goal ball/rect acts like a wheel.
+- ALL rod ends must be inside build area. Overlap w/ terrain rejected (keep ~5 units off). Water rods pass through everything except terrain.
+- A rod attached at only ONE joint pivots freely. Triangles rigid (add diagonals). 
+- Gravity 300 u/s^2, 30 ticks/s. Ball only needs to be in goal at one moment.
+- TRY SIMPLE FIRST (gravity ramps, moving the ball).
+- L1 solved by moving ball; L2: 4-wheel car with ball on water rods. L3: 2 cw wheels + tall water triangle. L4: 10-wheel long truss car over pit.
+- L5 (goal ABOVE): launcher tower: cw wheel on water triangle; needed COUNTERWEIGHT opposite side or motor stalls.
+- L6: wood triangle ramp on ledge, ball atop, rolls off into goal.
+- L10 "up the hump" (goal 550 units right, big semicircle hump r=102 in between, build area at far left): flimsy 2-wheel car fails. WORKED: long rigid wood truss (5 cw wheels along bottom y=190, 2 extra cw wheels stacked in a vertical column at the front x=118,y=148/106, triangulated top rail at y=148), plus back post up to (-95,75) braced with diagonal => pocket holds the ball. Car climbs hump wall with front wheel column, tumbles over, ball rides to goal. Solved tick 254.

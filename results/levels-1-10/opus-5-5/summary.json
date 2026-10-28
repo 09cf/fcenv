@@ -1,0 +1,427 @@
+{
+  "levels": [
+    {
+      "level": "01-rolling-away",
+      "runner": "claude-code",
+      "model": "claude-opus-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 6,
+      "nudges": 0,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 16,
+        "cache_creation_input_tokens": 9335,
+        "cache_read_input_tokens": 46130,
+        "output_tokens": 2035
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.1059,
+      "cc_cost_estimate": 0.2269,
+      "plan_usage": {
+        "five_hour": [
+          0.02,
+          0.02
+        ],
+        "seven_day": [
+          0,
+          0
+        ]
+      },
+      "pauses": [],
+      "paused_seconds": 0,
+      "error": null,
+      "seconds": 28.1,
+      "solved": true,
+      "solve_tick": 130,
+      "solved_at_end": false,
+      "tool_calls": 5
+    },
+    {
+      "level": "02-reach-up",
+      "runner": "claude-code",
+      "model": "claude-opus-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 7,
+      "nudges": 0,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 22,
+        "cache_creation_input_tokens": 6809,
+        "cache_read_input_tokens": 73282,
+        "output_tokens": 2740
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.1182,
+      "cc_cost_estimate": 0.3519,
+      "plan_usage": {
+        "five_hour": [
+          0.02,
+          0.02
+        ],
+        "seven_day": [
+          0,
+          0
+        ]
+      },
+      "pauses": [],
+      "paused_seconds": 0,
+      "error": null,
+      "seconds": 41.5,
+      "solved": true,
+      "solve_tick": 76,
+      "solved_at_end": false,
+      "tool_calls": 6
+    },
+    {
+      "level": "03-mind-the-gap",
+      "runner": "claude-code",
+      "model": "claude-opus-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 7,
+      "nudges": 0,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 18,
+        "cache_creation_input_tokens": 6959,
+        "cache_read_input_tokens": 61128,
+        "output_tokens": 3162
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.1226,
+      "cc_cost_estimate": 0.2241,
+      "plan_usage": {
+        "five_hour": [
+          0.02,
+          0.02
+        ],
+        "seven_day": [
+          0,
+          0
+        ]
+      },
+      "pauses": [],
+      "paused_seconds": 0,
+      "error": null,
+      "seconds": 35.6,
+      "solved": true,
+      "solve_tick": 126,
+      "solved_at_end": false,
+      "tool_calls": 6
+    },
+    {
+      "level": "04-junkyard",
+      "runner": "claude-code",
+      "model": "claude-opus-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 14,
+      "nudges": 0,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 28,
+        "cache_creation_input_tokens": 13739,
+        "cache_read_input_tokens": 143020,
+        "output_tokens": 5044
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.2269,
+      "cc_cost_estimate": 0.6913,
+      "plan_usage": {
+        "five_hour": [
+          0.02,
+          0.02
+        ],
+        "seven_day": [
+          0,
+          0
+        ]
+      },
+      "pauses": [],
+      "paused_seconds": 0,
+      "error": null,
+      "seconds": 56.8,
+      "solved": true,
+      "solve_tick": 324,
+      "solved_at_end": false,
+      "tool_calls": 13
+    },
+    {
+      "level": "05-the-wall",
+      "runner": "claude-code",
+      "model": "claude-opus-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 29,
+      "nudges": 0,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 48,
+        "cache_creation_input_tokens": 25139,
+        "cache_read_input_tokens": 382373,
+        "output_tokens": 9976
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.4784,
+      "cc_cost_estimate": 1.3984,
+      "plan_usage": {
+        "five_hour": [
+          0.02,
+          0.03
+        ],
+        "seven_day": [
+          0,
+          0
+        ]
+      },
+      "pauses": [],
+      "paused_seconds": 0,
+      "error": null,
+      "seconds": 108.6,
+      "solved": true,
+      "solve_tick": 312,
+      "solved_at_end": false,
+      "tool_calls": 28
+    },
+    {
+      "level": "06-on-a-roll",
+      "runner": "claude-code",
+      "model": "claude-opus-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 8,
+      "nudges": 0,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 22,
+        "cache_creation_input_tokens": 10890,
+        "cache_read_input_tokens": 97800,
+        "output_tokens": 4423
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.1821,
+      "cc_cost_estimate": 0.5679,
+      "plan_usage": {
+        "five_hour": [
+          0.03,
+          0.03
+        ],
+        "seven_day": [
+          0,
+          0
+        ]
+      },
+      "pauses": [],
+      "paused_seconds": 0,
+      "error": null,
+      "seconds": 48.9,
+      "solved": true,
+      "solve_tick": 222,
+      "solved_at_end": false,
+      "tool_calls": 7
+    },
+    {
+      "level": "07-full-up",
+      "runner": "claude-code",
+      "model": "claude-opus-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 17,
+      "nudges": 0,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 30,
+        "cache_creation_input_tokens": 13733,
+        "cache_read_input_tokens": 161509,
+        "output_tokens": 5675
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.2469,
+      "cc_cost_estimate": 0.7494,
+      "plan_usage": {
+        "five_hour": [
+          0.03,
+          0.03
+        ],
+        "seven_day": [
+          0,
+          0
+        ]
+      },
+      "pauses": [],
+      "paused_seconds": 0,
+      "error": null,
+      "seconds": 60.6,
+      "solved": true,
+      "solve_tick": 188,
+      "solved_at_end": false,
+      "tool_calls": 16
+    },
+    {
+      "level": "08-higher",
+      "runner": "claude-code",
+      "model": "claude-opus-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 16,
+      "nudges": 0,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 32,
+        "cache_creation_input_tokens": 18432,
+        "cache_read_input_tokens": 203606,
+        "output_tokens": 8447
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.3427,
+      "cc_cost_estimate": 1.0458,
+      "plan_usage": {
+        "five_hour": [
+          0.03,
+          0.04
+        ],
+        "seven_day": [
+          0,
+          0
+        ]
+      },
+      "pauses": [],
+      "paused_seconds": 0,
+      "error": null,
+      "seconds": 94.1,
+      "solved": true,
+      "solve_tick": 137,
+      "solved_at_end": false,
+      "tool_calls": 15
+    },
+    {
+      "level": "09-around-the-bend",
+      "runner": "claude-code",
+      "model": "claude-opus-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 14,
+      "nudges": 0,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 30,
+        "cache_creation_input_tokens": 26586,
+        "cache_read_input_tokens": 253001,
+        "output_tokens": 10834
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.4509,
+      "cc_cost_estimate": 1.4121,
+      "plan_usage": {
+        "five_hour": [
+          0.04,
+          0.04
+        ],
+        "seven_day": [
+          0,
+          0.01
+        ]
+      },
+      "pauses": [],
+      "paused_seconds": 0,
+      "error": null,
+      "seconds": 119.8,
+      "solved": true,
+      "solve_tick": 773,
+      "solved_at_end": false,
+      "tool_calls": 13
+    },
+    {
+      "level": "10-up-the-hump",
+      "runner": "claude-code",
+      "model": "claude-opus-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 37,
+      "nudges": 0,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 58,
+        "cache_creation_input_tokens": 42419,
+        "cache_read_input_tokens": 781341,
+        "output_tokens": 17118
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.8672,
+      "cc_cost_estimate": 1.5813,
+      "plan_usage": {
+        "five_hour": [
+          0.04,
+          0.05
+        ],
+        "seven_day": [
+          0.01,
+          0.01
+        ]
+      },
+      "pauses": [],
+      "paused_seconds": 0,
+      "error": null,
+      "seconds": 193.0,
+      "solved": true,
+      "solve_tick": 763,
+      "solved_at_end": false,
+      "tool_calls": 36
+    }
+  ],
+  "solved": 10,
+  "played": 10,
+  "cost": 0.0
+}

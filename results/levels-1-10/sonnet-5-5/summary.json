@@ -1,0 +1,421 @@
+{
+  "levels": [
+    {
+      "level": "01-rolling-away",
+      "runner": "claude-code",
+      "model": "claude-sonnet-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 23,
+      "nudges": 0,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 32,
+        "cache_creation_input_tokens": 14975,
+        "cache_read_input_tokens": 159564,
+        "output_tokens": 4352
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.1129,
+      "cc_cost_estimate": 0.2243,
+      "plan_usage": {
+        "five_hour": [
+          0.29,
+          0.3
+        ],
+        "seven_day": [
+          0.08,
+          0.08
+        ]
+      },
+      "error": null,
+      "seconds": 47.3,
+      "solved": true,
+      "solve_tick": 96,
+      "tool_calls": 22,
+      "solved_at_end": false
+    },
+    {
+      "level": "02-reach-up",
+      "runner": "claude-code",
+      "model": "claude-sonnet-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 245,
+      "nudges": 0,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 188,
+        "cache_creation_input_tokens": 196154,
+        "cache_read_input_tokens": 10385186,
+        "output_tokens": 91189
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 3.4655,
+      "cc_cost_estimate": 5.4151,
+      "plan_usage": {
+        "five_hour": [
+          0.3,
+          0.49
+        ],
+        "seven_day": [
+          0.08,
+          0.1
+        ]
+      },
+      "error": null,
+      "seconds": 1038.6,
+      "solved": true,
+      "solve_tick": 103,
+      "tool_calls": 247,
+      "solved_at_end": false
+    },
+    {
+      "level": "03-mind-the-gap",
+      "runner": "claude-code",
+      "model": "claude-sonnet-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 18,
+      "nudges": 0,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 28,
+        "cache_creation_input_tokens": 12320,
+        "cache_read_input_tokens": 154532,
+        "output_tokens": 4992
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.1117,
+      "cc_cost_estimate": 0.2124,
+      "plan_usage": {
+        "five_hour": [
+          0.49,
+          0.5
+        ],
+        "seven_day": [
+          0.1,
+          0.1
+        ]
+      },
+      "error": null,
+      "seconds": 56.0,
+      "solved": true,
+      "solve_tick": 85,
+      "tool_calls": 17,
+      "solved_at_end": false
+    },
+    {
+      "level": "04-junkyard",
+      "runner": "claude-code",
+      "model": "claude-sonnet-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 71,
+      "nudges": 0,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 100,
+        "cache_creation_input_tokens": 66266,
+        "cache_read_input_tokens": 1708346,
+        "output_tokens": 34176
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.8381,
+      "cc_cost_estimate": 1.5226,
+      "plan_usage": {
+        "five_hour": [
+          0.07,
+          0.14
+        ],
+        "seven_day": [
+          0.14,
+          0.15
+        ]
+      },
+      "pauses": [],
+      "paused_seconds": 0,
+      "error": null,
+      "seconds": 359.5,
+      "solved": true,
+      "solve_tick": 741,
+      "tool_calls": 75,
+      "solved_at_end": false
+    },
+    {
+      "level": "05-the-wall",
+      "runner": "claude-code",
+      "model": "claude-sonnet-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 16,
+      "nudges": 0,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 26,
+        "cache_creation_input_tokens": 14291,
+        "cache_read_input_tokens": 158704,
+        "output_tokens": 5799
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.1255,
+      "cc_cost_estimate": 0.2378,
+      "plan_usage": {
+        "five_hour": [
+          0.14,
+          0.15
+        ],
+        "seven_day": [
+          0.15,
+          0.15
+        ]
+      },
+      "pauses": [],
+      "paused_seconds": 0,
+      "error": null,
+      "seconds": 54.6,
+      "solved": true,
+      "solve_tick": 327,
+      "tool_calls": 16,
+      "solved_at_end": false
+    },
+    {
+      "level": "06-on-a-roll",
+      "runner": "claude-code",
+      "model": "claude-sonnet-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 16,
+      "nudges": 0,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 26,
+        "cache_creation_input_tokens": 14946,
+        "cache_read_input_tokens": 165469,
+        "output_tokens": 5439
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.1249,
+      "cc_cost_estimate": 0.2357,
+      "plan_usage": {
+        "five_hour": [
+          0.15,
+          0.16
+        ],
+        "seven_day": [
+          0.15,
+          0.15
+        ]
+      },
+      "pauses": [],
+      "paused_seconds": 0,
+      "error": null,
+      "seconds": 63.4,
+      "solved": true,
+      "solve_tick": 91,
+      "tool_calls": 20,
+      "solved_at_end": false
+    },
+    {
+      "level": "07-full-up",
+      "runner": "claude-code",
+      "model": "claude-sonnet-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 19,
+      "nudges": 0,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 30,
+        "cache_creation_input_tokens": 20330,
+        "cache_read_input_tokens": 231398,
+        "output_tokens": 9034
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.1875,
+      "cc_cost_estimate": 0.3607,
+      "plan_usage": {
+        "five_hour": [
+          0.16,
+          0.18
+        ],
+        "seven_day": [
+          0.15,
+          0.15
+        ]
+      },
+      "pauses": [],
+      "paused_seconds": 0,
+      "error": null,
+      "seconds": 81.6,
+      "solved": true,
+      "solve_tick": 316,
+      "tool_calls": 17,
+      "solved_at_end": false
+    },
+    {
+      "level": "08-higher",
+      "runner": "claude-code",
+      "model": "claude-sonnet-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 71,
+      "nudges": 0,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 92,
+        "cache_creation_input_tokens": 54863,
+        "cache_read_input_tokens": 1449944,
+        "output_tokens": 23382
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.6612,
+      "cc_cost_estimate": 1.1678,
+      "plan_usage": {
+        "five_hour": [
+          0.18,
+          0.22
+        ],
+        "seven_day": [
+          0.15,
+          0.16
+        ]
+      },
+      "pauses": [],
+      "paused_seconds": 0,
+      "error": null,
+      "seconds": 278.7,
+      "solved": true,
+      "solve_tick": 92,
+      "tool_calls": 89,
+      "solved_at_end": false
+    },
+    {
+      "level": "09-around-the-bend",
+      "runner": "claude-code",
+      "model": "claude-sonnet-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 12,
+      "nudges": 0,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 22,
+        "cache_creation_input_tokens": 14729,
+        "cache_read_input_tokens": 140079,
+        "output_tokens": 8761
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.1525,
+      "cc_cost_estimate": 0.3033,
+      "plan_usage": {
+        "five_hour": [
+          0.22,
+          0.24
+        ],
+        "seven_day": [
+          0.16,
+          0.16
+        ]
+      },
+      "pauses": [],
+      "paused_seconds": 0,
+      "error": null,
+      "seconds": 85.9,
+      "solved": true,
+      "solve_tick": 209,
+      "tool_calls": 11,
+      "solved_at_end": false
+    },
+    {
+      "level": "10-up-the-hump",
+      "runner": "claude-code",
+      "model": "claude-sonnet-5-5",
+      "effort": null,
+      "stop": "submitted",
+      "submitted_by_agent": true,
+      "max_tool_calls": null,
+      "turns": 20,
+      "nudges": 0,
+      "notes_turns": 2,
+      "usage": {
+        "input_tokens": 36,
+        "cache_creation_input_tokens": 22659,
+        "cache_read_input_tokens": 243876,
+        "output_tokens": 8652
+      },
+      "usage_partial": false,
+      "cost": null,
+      "level_budget": null,
+      "budget_shown": true,
+      "list_price_cost": 0.192,
+      "cc_cost_estimate": 0.3842,
+      "plan_usage": {
+        "five_hour": [
+          0.06,
+          0.08
+        ],
+        "seven_day": [
+          0.01,
+          0.01
+        ]
+      },
+      "pauses": [],
+      "paused_seconds": 0,
+      "error": null,
+      "seconds": 82.2,
+      "solved": true,
+      "solve_tick": 254,
+      "solved_at_end": false,
+      "tool_calls": 21
+    }
+  ],
+  "solved": 10,
+  "played": 10,
+  "cost": 0
+}
